@@ -1,0 +1,17 @@
+{
+  "name": "litany-of-the-hollow-god",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "version": "0.0.1"
+}

@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  background-color: #050505;
+  color: #ffffff;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  user-select: none;
+}
+
+canvas {
+  image-rendering: pixelated;
+  touch-action: none;
+}
