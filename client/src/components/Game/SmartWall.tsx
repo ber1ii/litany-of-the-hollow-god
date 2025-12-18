@@ -57,11 +57,11 @@ export const SmartWall: React.FC<SmartWallProps> = ({ geometry, texture, playerP
       shouldFade = true;
     }
 
-    const targetSide = shouldFade ? 0.2 : 1;
-    const targetTop = shouldFade ? 0.1 : 1;
+    const targetSide = shouldFade ? 0.7 : 1;
+    const targetTop = shouldFade ? 0.5 : 1;
 
-    const newSide = THREE.MathUtils.lerp(sideOpacity, targetSide, 0.2);
-    const newTop = THREE.MathUtils.lerp(topOpacity, targetTop, 0.2);
+    const newSide = THREE.MathUtils.lerp(sideOpacity, targetSide, 0.8);
+    const newTop = THREE.MathUtils.lerp(topOpacity, targetTop, 0.8);
 
     if (Math.abs(newSide - sideOpacity) > 0.01) setSideOpacity(newSide);
     if (Math.abs(newTop - topOpacity) > 0.01) setTopOpacity(newTop);

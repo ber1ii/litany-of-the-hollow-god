@@ -21,6 +21,8 @@ function App() {
   const currentThemeId = 'DUNGEON';
   const playerPosRef = useRef(new THREE.Vector3(0, 0, 0));
 
+  const fogArgs = gameState === 'combat' ? ['#050505', 10, 25] : ['#050505', 4, 12];
+
   // 2. Interaction Handler
   const handleInteract = (x: number, z: number) => {
     setMapData((prev) => {
@@ -138,7 +140,7 @@ function App() {
 
       <Canvas shadows camera={{ position: [0, 3, 2.5], fov: 50 }}>
         <color attach="background" args={['#050505']} />
-        <fog attach="fog" args={['#050505', 4, 12]} />
+        <fog attach="fog" args={fogArgs as [string, number, number]} />
         <hemisphereLight color="#222244" groundColor="#050505" intensity={0.8} />
 
         {gameState === 'roam' ? (

@@ -1,4 +1,3 @@
-// components/Combat/CombatScene.tsx
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Html, useTexture, Billboard } from '@react-three/drei';
 import { useThree, useFrame } from '@react-three/fiber';
@@ -52,7 +51,7 @@ const AnimatedTorch = ({ position }: { position: [number, number, number] }) => 
       <Billboard>
         <mesh>
           <planeGeometry args={[1, 1]} />
-          <meshBasicMaterial map={textures[frameIndex]} transparent alphaTest={0.5} />
+          <meshBasicMaterial map={textures[frameIndex]} transparent alphaTest={0.5} fog={false} />
         </mesh>
       </Billboard>
 
@@ -412,7 +411,7 @@ export const CombatScene: React.FC<CombatSceneProps> = ({
       {/* --- HUD UI --- */}
       <Html fullscreen className="pointer-events-none font-pixel select-none z-50">
         <div className="w-full h-full relative">
-          <div className="pointer-events-auto absolute bottom-14 right-8 w-[90%] md:w-[60%] lg:w-[45%] max-w-4xl h-auto min-h-[250px] bg-fh-black border-4 border-fh-border flex text-white shadow-2xl rounded-xl pb-16">
+          <div className="pointer-events-auto absolute bottom-16 right-8 w-[90%] md:w-[60%] lg:w-[45%] max-w-4xl h-auto min-h-[250px] bg-fh-black border-4 border-fh-border flex text-white shadow-2xl rounded-xl pb-16">
             {/* COMMANDS */}
             <div className="w-[180px] border-r-4 border-fh-border p-4 flex flex-col bg-[#1a1a1a] rounded-l-lg">
               {combatState === 'player_turn' ? (
