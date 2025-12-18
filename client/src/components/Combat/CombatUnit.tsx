@@ -1,11 +1,12 @@
 // components/Combat/CombatUnit.tsx
-import React, { useRef, useMemo } from 'react';
+import React, { useRef, useMemo, useEffect } from 'react';
 import { useTexture, Billboard } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 
 interface CombatUnitProps {
-  textureUrl: string;
+  textureUrl?: string;
+  texture?: THREE.Texture;
   frames: number; // Number of frames to play
   columns: number; // Total columns in sheet
   rows: number; // Total rows in sheet
@@ -15,11 +16,13 @@ interface CombatUnitProps {
   flip?: boolean;
   loop?: boolean;
   onAnimEnd?: () => void;
+  frameDuration?: number;
 }
 
 export const CombatUnit: React.FC<CombatUnitProps> = ({
   textureUrl,
   frames,
+  texture: providedTexture,
   columns,
   rows,
   startFrame = 0,
@@ -28,26 +31,28 @@ export const CombatUnit: React.FC<CombatUnitProps> = ({
   flip = false,
   loop = true,
   onAnimEnd,
+  frameDuration = 0.075,
 }) => {
-  const masterTexture = useTexture(textureUrl);
+  const loadedTexture = useTexture(providedTexture ? [] : [textureUrl!]);
+  const sourceTexture = providedTexture || (loadedTexture[0] as THREE.Texture);
+
   const materialRef = useRef<THREE.MeshStandardMaterial>(null);
 
   const spriteAspect = useMemo(() => {
-    const img = masterTexture.image as HTMLImageElement;
-
-    // Safety check: if image isn't fully ready or dimensions are missing
+    const img = sourceTexture.image as HTMLImageElement;
+    // Safety check if image isn't ready
     if (!img || !img.width || !img.height) return 1;
 
     const frameWidth = img.width / columns;
     const frameHeight = img.height / rows;
     return frameWidth / frameHeight;
-  }, [masterTexture, columns, rows]);
+  }, [sourceTexture, columns, rows]);
 
   const width = height * spriteAspect;
 
   // Configure the texture instance once
-  const texture = useMemo(() => {
-    const t = masterTexture.clone();
+  const activeTexture = useMemo(() => {
+    const t = sourceTexture.clone();
     t.magFilter = THREE.NearestFilter;
     t.minFilter = THREE.NearestFilter;
     t.colorSpace = THREE.SRGBColorSpace;
@@ -70,19 +75,18 @@ export const CombatUnit: React.FC<CombatUnitProps> = ({
       t.repeat.x = -1 / columns;
     }
     return t;
-  }, [masterTexture, columns, rows, flip, startFrame]);
+  }, [sourceTexture, columns, rows, flip, startFrame]);
 
   // Animation State
   const currentLocalFrame = useRef(0);
   const elapsed = useRef(0);
-  const FRAME_DURATION = 0.225;
 
   useFrame((state, delta) => {
     if (!materialRef.current || !materialRef.current.map) return;
 
     elapsed.current += delta;
 
-    if (elapsed.current > FRAME_DURATION) {
+    if (elapsed.current > frameDuration) {
       elapsed.current = 0;
 
       // Advance Frame
@@ -112,12 +116,16 @@ export const CombatUnit: React.FC<CombatUnitProps> = ({
     }
   });
 
+  useEffect(() => {
+    currentLocalFrame.current = 0;
+    elapsed.current = 0;
+  }, [sourceTexture.uuid]);
+
   return (
     <Billboard position={position}>
-      {/* FIX 2: Offset Y by height/2 so the 'position' prop refers to the FEET */}
       <mesh position={[0, height / 2, 0]}>
         <planeGeometry args={[width, height]} />
-        <meshStandardMaterial ref={materialRef} map={texture} transparent alphaTest={0.5} />
+        <meshStandardMaterial ref={materialRef} map={activeTexture} transparent alphaTest={0.5} />
       </mesh>
     </Billboard>
   );

@@ -27,7 +27,6 @@ export const Door: React.FC<DoorProps> = ({ x, z, isOpen }) => {
       {/* Door Knob */}
       <mesh position={[0.6, 0, 0.15]}>
         <sphereGeometry args={[0.1]} />
-        {/* FIX: 'metallic' -> 'metalness' */}
         <meshStandardMaterial color="#c0a080" metalness={0.8} roughness={0.2} />
       </mesh>
     </animated.group>

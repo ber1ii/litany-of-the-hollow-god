@@ -18,6 +18,20 @@ export const getSpritePaths = (character: string, action: string, direction: str
   return paths;
 };
 
+const COMBAT_TEXTURES = [
+  // Knight
+  '/sprites/combat/knight/Idle.png',
+  '/sprites/combat/knight/attack1.png',
+  '/sprites/combat/knight/attack2.png',
+  '/sprites/combat/knight/Hurt.png',
+  '/sprites/combat/knight/Death.png',
+  '/sprites/combat/knight/Pray.png',
+  '/sprites/combat/skeleton/idle.png',
+  '/sprites/combat/skeleton/attack.png',
+  '/sprites/combat/skeleton/hurt.png',
+  '/sprites/combat/skeleton/death.png',
+];
+
 export const preloadAllAssets = () => {
   const characters = ['hero', 'skeleton'];
   const actions = ['idle', 'walk'];
@@ -30,6 +44,8 @@ export const preloadAllAssets = () => {
       });
     });
   });
+
+  useTexture.preload(COMBAT_TEXTURES);
 
   console.log('Assets preloading finished...');
 };

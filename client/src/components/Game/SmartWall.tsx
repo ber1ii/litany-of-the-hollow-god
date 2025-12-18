@@ -1,3 +1,4 @@
+// SmartWall.tsx
 import React, { useRef, useState, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
@@ -5,88 +6,99 @@ import * as THREE from 'three';
 interface SmartWallProps {
   geometry: THREE.BufferGeometry;
   texture: THREE.Texture;
+  playerPos: React.MutableRefObject<THREE.Vector3>;
+  wallType: 'rigid' | 'fadable';
 }
 
-export const SmartWall: React.FC<SmartWallProps> = ({ geometry, texture }) => {
+export const SmartWall: React.FC<SmartWallProps> = ({ geometry, texture, playerPos, wallType }) => {
   const meshRef = useRef<THREE.Mesh>(null);
 
   const [sideOpacity, setSideOpacity] = useState(1);
   const [topOpacity, setTopOpacity] = useState(1);
 
-  // Optimization: Create persistent objects to avoid GC
-  const raycaster = useMemo(() => new THREE.Raycaster(), []);
-  const playerPos = useMemo(() => new THREE.Vector3(), []);
-  const direction = useMemo(() => new THREE.Vector3(), []);
-  const box = useMemo(() => new THREE.Box3(), []);
+  const wallCenter = useRef(new THREE.Vector3()).current;
+  const box = useRef(new THREE.Box3()).current;
+
+  const shadowDepthMat = useMemo(() => {
+    return new THREE.MeshDepthMaterial({
+      depthPacking: THREE.BasicDepthPacking,
+      side: THREE.DoubleSide,
+    });
+  }, []);
 
   useFrame((state) => {
-    if (!meshRef.current) return;
+    if (!meshRef.current || !playerPos.current) return;
 
-    const cameraPos = state.camera.position;
-
-    // 1. Raycast Check (Line of Sight)
-    const pX = cameraPos.x;
-    const pZ = cameraPos.z - 2;
-    playerPos.set(pX, 0.5, pZ);
-
-    direction.subVectors(playerPos, cameraPos).normalize();
-    raycaster.set(cameraPos, direction);
-
-    const intersects = raycaster.intersectObject(meshRef.current, false);
-
-    let shouldFade = false;
-
-    // Condition A: Ray hits wall before player
-    if (intersects.length > 0) {
-      const distToWall = intersects[0].distance;
-      const distToPlayer = cameraPos.distanceTo(playerPos);
-      if (distToWall < distToPlayer) {
-        shouldFade = true;
+    if (wallType === 'rigid') {
+      if (sideOpacity !== 1) {
+        setSideOpacity(1);
+        setTopOpacity(1);
       }
+      return;
     }
 
-    // Condition B: Camera is INSIDE the wall (Fix for bottom walls)
-    // We update the box to match the mesh's current world position
+    const pPos = playerPos.current;
+
     if (!geometry.boundingBox) geometry.computeBoundingBox();
     box.copy(geometry.boundingBox!);
     box.applyMatrix4(meshRef.current.matrixWorld);
+    box.getCenter(wallCenter);
 
-    // If camera is inside the wall's box, FORCE fade
-    if (box.containsPoint(cameraPos)) {
+    let shouldFade = false;
+
+    const dz = wallCenter.z - pPos.z;
+    const dx = Math.abs(wallCenter.x - pPos.x);
+
+    if (dz > 0.5 && dz < 4.0 && dx < 2.5) {
       shouldFade = true;
     }
 
-    // Apply Fade
-    const targetSide = shouldFade ? 0.2 : 1;
-    const targetTop = shouldFade ? 0.05 : 1;
+    if (!shouldFade && box.containsPoint(state.camera.position)) {
+      shouldFade = true;
+    }
 
-    const newSide = THREE.MathUtils.lerp(sideOpacity, targetSide, 0.1);
-    const newTop = THREE.MathUtils.lerp(topOpacity, targetTop, 0.1);
+    const targetSide = shouldFade ? 0.2 : 1;
+    const targetTop = shouldFade ? 0.1 : 1;
+
+    const newSide = THREE.MathUtils.lerp(sideOpacity, targetSide, 0.2);
+    const newTop = THREE.MathUtils.lerp(topOpacity, targetTop, 0.2);
 
     if (Math.abs(newSide - sideOpacity) > 0.01) setSideOpacity(newSide);
     if (Math.abs(newTop - topOpacity) > 0.01) setTopOpacity(newTop);
   });
 
+  const isTransparent = sideOpacity < 0.95;
+
   return (
-    <mesh ref={meshRef} geometry={geometry} castShadow receiveShadow>
-      <meshStandardMaterial
-        attach="material-0"
-        map={texture}
-        color="#666"
-        transparent={true}
-        opacity={sideOpacity}
-        depthWrite={true} // Keep true for correct Z-sorting
-        shadowSide={THREE.DoubleSide}
-      />
-      <meshStandardMaterial
-        attach="material-1"
-        map={texture}
-        color="#666"
-        transparent={true}
-        opacity={topOpacity}
-        depthWrite={false}
-        shadowSide={THREE.DoubleSide}
-      />
-    </mesh>
+    <group>
+      {/* 1. VISUAL MESH: Handles texture and fading */}
+      <mesh ref={meshRef} geometry={geometry} castShadow={false} receiveShadow>
+        <meshStandardMaterial
+          attach="material-0"
+          map={texture}
+          color="#888"
+          transparent={true}
+          opacity={sideOpacity}
+          depthWrite={!isTransparent}
+          shadowSide={THREE.DoubleSide}
+        />
+        <meshStandardMaterial
+          attach="material-1"
+          map={texture}
+          color="#888"
+          transparent={true}
+          opacity={topOpacity}
+          depthWrite={!isTransparent}
+          shadowSide={THREE.DoubleSide}
+        />
+      </mesh>
+
+      {/* 2. SHADOW BLOCKER: Invisible to camera, SOLID to flashlight. */}
+      <mesh geometry={geometry} castShadow={true} receiveShadow={false}>
+        <meshBasicMaterial colorWrite={false} depthWrite={false} />
+
+        <primitive object={shadowDepthMat} attach="customDepthMaterial" />
+      </mesh>
+    </group>
   );
 };

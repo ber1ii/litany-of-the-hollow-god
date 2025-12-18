@@ -1,57 +1,24 @@
 import * as THREE from 'three';
 import { TILE_SIZE } from '../components/Game/MapData';
 
+// Returns one group per wall tile
 export const getWallGroups = (map: number[][]) => {
-  const visited = new Set<string>();
   const groups: { x: number; z: number }[][] = [];
-
-  const directions = [
-    { x: 1, z: 0 },
-    { x: -1, z: 0 },
-    { x: 0, z: 1 },
-    { x: 0, z: -1 },
-  ];
-
   for (let row = 0; row < map.length; row++) {
     for (let col = 0; col < map[row].length; col++) {
-      // Key must strictly match nKey format
-      const key = `${col},${row}`;
-
-      if (map[row][col] === 1 && !visited.has(key)) {
-        const group: { x: number; z: number }[] = [];
-        const queue = [{ c: col, r: row }];
-        visited.add(key);
-
-        while (queue.length > 0) {
-          const { c, r } = queue.pop()!;
-          group.push({ x: c, z: r });
-
-          directions.forEach((dir) => {
-            const nc = c + dir.x;
-            const nr = r + dir.z;
-            const nKey = `${nc},${nr}`;
-
-            if (
-              nr >= 0 &&
-              nr < map.length &&
-              nc >= 0 &&
-              nc < map[0].length &&
-              map[nr][nc] === 1 &&
-              !visited.has(nKey)
-            ) {
-              visited.add(nKey);
-              queue.push({ c: nc, r: nr });
-            }
-          });
-        }
-        groups.push(group);
+      if (map[row][col] === 1) {
+        groups.push([{ x: col, z: row }]);
       }
     }
   }
   return groups;
 };
 
-export const createWallGeometry = (group: { x: number; z: number }[], map: number[][]) => {
+export const createWallGeometry = (
+  group: { x: number; z: number }[],
+  map: number[][],
+  forceFaces: string[] = []
+) => {
   const vertices: number[] = [];
   const normals: number[] = [];
   const uvs: number[] = [];
@@ -102,12 +69,12 @@ export const createWallGeometry = (group: { x: number; z: number }[], map: numbe
     };
   };
 
-  // PASS 1: GENERATE SIDES (Material Index 0)
+  // PASS 1: Generate SIDES
   group.forEach(({ x, z }) => {
     const c = getCoords(x, z);
 
-    // North
-    if (!isWall(x, z - 1))
+    // North Face (Checks Z-1) OR Forced 'N'
+    if (!isWall(x, z - 1) || forceFaces.includes('N'))
       addFace(
         [c.xR, c.yBot, c.zF],
         [c.xL, c.yBot, c.zF],
@@ -116,8 +83,9 @@ export const createWallGeometry = (group: { x: number; z: number }[], map: numbe
         [0, 0, -1],
         'side'
       );
-    // South
-    if (!isWall(x, z + 1))
+
+    // South Face (Checks Z+1) OR Forced 'S'
+    if (!isWall(x, z + 1) || forceFaces.includes('S'))
       addFace(
         [c.xL, c.yBot, c.zB],
         [c.xR, c.yBot, c.zB],
@@ -126,8 +94,9 @@ export const createWallGeometry = (group: { x: number; z: number }[], map: numbe
         [0, 0, 1],
         'side'
       );
-    // West
-    if (!isWall(x - 1, z))
+
+    // West Face (Checks X-1) OR Forced 'W'
+    if (!isWall(x - 1, z) || forceFaces.includes('W'))
       addFace(
         [c.xL, c.yBot, c.zF],
         [c.xL, c.yBot, c.zB],
@@ -136,8 +105,9 @@ export const createWallGeometry = (group: { x: number; z: number }[], map: numbe
         [-1, 0, 0],
         'side'
       );
-    // East
-    if (!isWall(x + 1, z))
+
+    // East Face (Checks X+1) OR Forced 'E'
+    if (!isWall(x + 1, z) || forceFaces.includes('E'))
       addFace(
         [c.xR, c.yBot, c.zB],
         [c.xR, c.yBot, c.zF],
@@ -150,10 +120,9 @@ export const createWallGeometry = (group: { x: number; z: number }[], map: numbe
 
   const sideIndicesCount = indices.length;
 
-  // PASS 2: GENERATE TOPS (Material Index 1)
+  // PASS 2: Generate TOPS
   group.forEach(({ x, z }) => {
     const c = getCoords(x, z);
-    // Top Face (Facing Up)
     addFace(
       [c.xL, c.yTop, c.zB],
       [c.xR, c.yTop, c.zB],
@@ -172,7 +141,6 @@ export const createWallGeometry = (group: { x: number; z: number }[], map: numbe
   geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geometry.setIndex(indices);
 
-  // Define Groups: Group 0 = Sides, Group 1 = Top
   geometry.addGroup(0, sideIndicesCount, 0);
   geometry.addGroup(sideIndicesCount, topIndicesCount, 1);
 

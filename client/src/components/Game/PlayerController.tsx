@@ -3,7 +3,7 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { Character } from './Character';
 import { useKeyboard } from '../../hooks/useKeyboard';
-import { LEVEL_1_MAP, TILE_SIZE } from './MapData';
+import { LEVEL_1_MAP, TILE_SIZE, TILE_TYPES } from './MapData';
 
 interface PlayerControllerProps {
   map: number[][];
@@ -22,10 +22,9 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
   const groupRef = useRef<THREE.Group>(null);
   const prevInteract = useRef(false);
 
-  const PLAYER_RADIUS = 0.35;
-  const SHOULDER_WIDTH = 0.25;
+  const PLAYER_RADIUS = 0.2;
+  const SHOULDER_WIDTH = 0.15;
 
-  // Torch targeting mechanism
   const lightTarget = useMemo(() => {
     const obj = new THREE.Object3D();
     obj.position.set(0, 0, 5);
@@ -36,30 +35,24 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
   const [direction, setDirection] = useState('S');
 
   const currentAim = useRef(new THREE.Vector3(0, 0, 5));
-  const MOVEMENT_SPEED = 3;
+  const MOVEMENT_SPEED = 2.25;
   const prevTile = useRef({ x: -1, z: -1 });
 
+  // --- COLLISION LOGIC ---
   const isWalkable = (x: number, z: number) => {
-    // Convert World Position 3D to Grid Coordinates
-    // We add TILE_SIZE / 2 to offset because our objects are centered
     const gridX = Math.round(x / TILE_SIZE);
     const gridZ = Math.round(z / TILE_SIZE);
 
-    // Safety check: Am i outside the map array?
     if (gridZ < 0 || gridZ >= LEVEL_1_MAP.length) return false;
     if (gridX < 0 || gridX >= LEVEL_1_MAP[0].length) return false;
 
     const tile = map[gridZ][gridX];
 
-    // 0 = Floor, 3 = Open Door. (1 is Wall, 2 is Closed Door)
-    return tile === 0 || tile === 3 || tile === 4 || tile === 5;
+    return tile !== TILE_TYPES.WALL && tile !== TILE_TYPES.DOOR_CLOSED;
   };
 
   const getDirectionFromAngle = (angle: number) => {
-    // Map angle (-PI to PI)
-    // 0 is east, PI/2 is south, -PI/2 is North, Pi/-Pi is West
     const deg = THREE.MathUtils.radToDeg(angle);
-
     if (deg >= -22.5 && deg < 22.5) return 'E';
     if (deg >= 22.5 && deg < 67.5) return 'SE';
     if (deg >= 67.5 && deg < 112.5) return 'S';
@@ -68,8 +61,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
     if (deg >= -157.5 && deg < -112.5) return 'NW';
     if (deg >= -112.5 && deg < -67.5) return 'N';
     if (deg >= -67.5 && deg < -22.5) return 'NE';
-
-    return 'S'; // Fallback
+    return 'S';
   };
 
   useFrame((state, delta) => {
@@ -77,6 +69,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
     playerRef.current.copy(groupRef.current.position);
     if (!lightTarget.parent) groupRef.current.add(lightTarget);
 
+    // INTERACT LOGIC
     if (input.interact && !prevInteract.current) {
       const aimDir = currentAim.current.clone().normalize();
       const interactX = groupRef.current.position.x + aimDir.x * TILE_SIZE;
@@ -91,6 +84,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
     }
     prevInteract.current = input.interact;
 
+    // MOVEMENT LOGIC
     let moveX = 0;
     let moveZ = 0;
     if (input.forward) moveZ -= 1;
@@ -116,11 +110,10 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
 
       const nextX = groupRef.current.position.x + moveX * MOVEMENT_SPEED * delta;
       const nextZ = groupRef.current.position.z + moveZ * MOVEMENT_SPEED * delta;
-
       const currZ = groupRef.current.position.z;
 
+      // X Axis Collision
       const checkX = moveX > 0 ? nextX + PLAYER_RADIUS : nextX - PLAYER_RADIUS;
-
       if (
         isWalkable(checkX, currZ - SHOULDER_WIDTH) &&
         isWalkable(checkX, currZ + SHOULDER_WIDTH)
@@ -128,8 +121,8 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         groupRef.current.position.x = nextX;
       }
 
+      // Z Axis Collision
       const checkZ = moveZ > 0 ? nextZ + PLAYER_RADIUS : nextZ - PLAYER_RADIUS;
-
       const currentXPos = groupRef.current.position.x;
 
       if (
@@ -142,6 +135,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
       setAnimation('idle');
     }
 
+    // AIMING LOGIC
     let targetX = currentAim.current.x;
     let targetZ = currentAim.current.z;
 
@@ -161,17 +155,29 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
     const lookAngle = Math.atan2(currentAim.current.z, currentAim.current.x);
     setDirection(getDirectionFromAngle(lookAngle));
 
+    const CAM_OFFSET_Y = 3;
+    const CAM_OFFSET_Z = 2.5;
+
     state.camera.position.x = THREE.MathUtils.lerp(
       state.camera.position.x,
       groupRef.current.position.x,
       0.1
     );
-    state.camera.position.z = THREE.MathUtils.lerp(
-      state.camera.position.z,
-      groupRef.current.position.z + 2,
+
+    state.camera.position.y = THREE.MathUtils.lerp(
+      state.camera.position.y,
+      groupRef.current.position.y + CAM_OFFSET_Y,
       0.1
     );
-    state.camera.lookAt(groupRef.current.position);
+
+    state.camera.position.z = THREE.MathUtils.lerp(
+      state.camera.position.z,
+      groupRef.current.position.z + CAM_OFFSET_Z,
+      0.1
+    );
+
+    const lookTarget = groupRef.current.position.clone().add(new THREE.Vector3(0, 0, -1.0));
+    state.camera.lookAt(lookTarget);
 
     const currentGridX = Math.round(groupRef.current.position.x / TILE_SIZE);
     const currentGridZ = Math.round(groupRef.current.position.z / TILE_SIZE);
@@ -184,31 +190,19 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
 
   return (
     <group ref={groupRef} position={[2, 0.5, 2]}>
-      {/* 3. LIGHTING SETUP */}
-
-      {/* The "Self Glow" PointLight (Reduced intensity) */}
-      <pointLight
-        position={[0, 2, 0]}
-        intensity={5} // Lowered from 5
-        distance={8} // Shorter range
-        decay={2}
-        color="#ffcfa1"
-      />
-
-      {/* Torch Cone in direction facing */}
+      <pointLight position={[0, 1, 0]} intensity={3} distance={4} decay={2} color="#ffcfa1" />
       <spotLight
-        position={[0, 1.5, 0]} // Shoulder height
-        target={lightTarget} // Look at the invisible target orb
-        intensity={20} // Very bright cone
-        angle={0.6} // Cone width (~35 degrees)
-        penumbra={0.5} // Soft edges on the cone
-        distance={30} // Far reach
+        position={[0, 1, 0]}
+        target={lightTarget}
+        intensity={10}
+        angle={0.6}
+        penumbra={0.5}
+        distance={15}
         castShadow
         shadow-mapSize={[1024, 1024]}
         shadow-normalBias={0.05}
-        color="#fffbd6" // Slightly cooler/brighter white than the torch
+        color="#fffbd6"
       />
-
       <Character action={animation} direction={direction} position={[0, 0, 0]} />
     </group>
   );

@@ -11,7 +11,7 @@ import { TILE_TYPES } from './MapData';
 interface LevelBuilderProps {
   map: number[][];
   playerPos: React.MutableRefObject<THREE.Vector3>;
-  onCombatStart: () => void; // <--- FIX 1: Add Prop
+  onCombatStart: () => void;
 }
 
 export const LevelBuilder: React.FC<LevelBuilderProps> = ({ map, playerPos, onCombatStart }) => {
@@ -25,13 +25,44 @@ export const LevelBuilder: React.FC<LevelBuilderProps> = ({ map, playerPos, onCo
     return t;
   }, [rawWallTexture]);
 
+  const mapWidth = map[0].length;
+
   const wallMeshes = useMemo(() => {
     const groups = getWallGroups(map);
+
     return groups.map((group, index) => {
-      const geometry = createWallGeometry(group, map);
-      return <SmartWall key={`wall-group-${index}`} geometry={geometry} texture={texture} />;
+      // 1. Analyze Position
+      const isLeft = group.some((b) => b.x === 0);
+      const isRight = group.some((b) => b.x === mapWidth - 1);
+      const isTop = group.some((b) => b.z === 0);
+
+      // 2. Determine Type
+      let type: 'rigid' | 'fadable' = 'fadable';
+
+      if (isTop || isLeft || isRight) {
+        type = 'rigid';
+      }
+
+      // 3. Determine Forced Faces
+      const forceFaces: string[] = [];
+
+      if (isLeft && type === 'rigid') forceFaces.push('E');
+      if (isRight && type === 'rigid') forceFaces.push('W');
+      if (isTop) forceFaces.push('S');
+
+      const geometry = createWallGeometry(group, map, forceFaces);
+
+      return (
+        <SmartWall
+          key={`wall-${index}`}
+          geometry={geometry}
+          texture={texture}
+          playerPos={playerPos}
+          wallType={type}
+        />
+      );
     });
-  }, [map, texture]);
+  }, [map, texture, playerPos, mapWidth]);
 
   const items = useMemo(() => {
     const list: React.ReactElement[] = [];
