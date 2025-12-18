@@ -16,6 +16,16 @@ body {
   font-family: 'VT323', monospace;
 }
 
+html,
+body,
+#root {
+  height: 100%; /* Crucial: locks the react container */
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden; /* No scrollbars allowed */
+}
+
 canvas {
   image-rendering: pixelated;
   touch-action: none;
@@ -54,4 +64,10 @@ canvas {
     transform: translateY(-40px) scale(1);
     opacity: 0;
   }
+}
+
+canvas {
+  image-rendering: pixelated;
+  touch-action: none;
+  display: block;
 }

@@ -190,11 +190,11 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
 
   return (
     <group ref={groupRef} position={[2, 0.5, 2]}>
-      <pointLight position={[0, 1, 0]} intensity={3} distance={4} decay={2} color="#ffcfa1" />
+      <pointLight position={[0, 1, 0]} intensity={2.5} distance={2} decay={0} color="#fffbd6" />
       <spotLight
-        position={[0, 1, 0]}
+        position={[0, 1.2, 0.1]}
         target={lightTarget}
-        intensity={10}
+        intensity={15}
         angle={0.6}
         penumbra={0.5}
         distance={15}
