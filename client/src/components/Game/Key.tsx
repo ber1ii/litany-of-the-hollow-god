@@ -12,7 +12,6 @@ interface KeyProps {
 export const Key: React.FC<KeyProps> = ({ x, z }) => {
   const rawTexture = useTexture('/sprites/props/candle/candleB_01.png');
 
-  // FIX: Clone the texture inside useMemo to modify properties safely
   const texture = useMemo(() => {
     const t = rawTexture.clone();
     t.magFilter = THREE.NearestFilter;

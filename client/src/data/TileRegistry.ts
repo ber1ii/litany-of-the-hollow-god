@@ -32,7 +32,7 @@ export const TILE_REGISTRY: Record<number, TileDef> = {
     solid: false,
   },
 
-  // --- ITEMS & MOBS (Fix for walkability) ---
+  // --- ITEMS & MOBS ---
   4: {
     id: 4,
     name: 'gold',

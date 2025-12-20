@@ -24,7 +24,6 @@ export const SmartWall: React.FC<SmartWallProps> = ({
   const [opacity, setOpacity] = useState(1);
 
   const box = useRef(new THREE.Box3()).current;
-  const clampedPoint = useRef(new THREE.Vector3()).current;
 
   const rawStoneTexture = useTexture('/textures/environment/ground_stone.png');
   const stoneTexture = useMemo(() => {
@@ -44,7 +43,7 @@ export const SmartWall: React.FC<SmartWallProps> = ({
 
   const baseGeometry = useMemo(() => geometry.clone(), [geometry]);
 
-  useFrame((state) => {
+  useFrame(() => {
     if (!groupRef.current || !playerPos.current) return;
 
     if (wallType === 'rigid') {
@@ -57,28 +56,25 @@ export const SmartWall: React.FC<SmartWallProps> = ({
     box.applyMatrix4(groupRef.current.matrixWorld);
 
     const pPos = playerPos.current;
-    const camPos = state.camera.position;
 
     let shouldFade = false;
 
-    // 1. Proximity
-    box.clampPoint(camPos, clampedPoint);
-    const distToCamera = clampedPoint.distanceTo(camPos);
+    // --- STRICT OCCLUSION LOGIC ---
+    // This allows the player to "hug" the wall (get very close) without the wall
+    // popping back to solid opacity.
+    // Side walls (at pPos.z) are still excluded because 0 > 0.05 is false.
+    const isSouthOfPlayer = box.min.z > pPos.z + 0.05;
 
-    if (distToCamera < 2.0) {
-      shouldFade = true;
-    } else {
-      // 2. Occlusion
-      const isSouthOfPlayer = box.min.z > pPos.z - 0.5;
-      if (isSouthOfPlayer) {
-        const margin = 1.5;
-        const withinXBounds = pPos.x > box.min.x - margin && pPos.x < box.max.x + margin;
-        if (withinXBounds) {
-          shouldFade = true;
-        }
+    if (isSouthOfPlayer) {
+      const margin = 1.2;
+      const withinXBounds = pPos.x > box.min.x - margin && pPos.x < box.max.x + margin;
+
+      if (withinXBounds) {
+        shouldFade = true;
       }
     }
 
+    // Smooth Fade
     const targetOpacity = shouldFade ? 0.2 : 1;
     const newOpacity = THREE.MathUtils.lerp(opacity, targetOpacity, 0.1);
 
@@ -99,24 +95,21 @@ export const SmartWall: React.FC<SmartWallProps> = ({
 
   return (
     <group ref={groupRef} position={position} rotation={rotation}>
-      {/* BASE MESH 
-          - visible={true}: Keeps it from floating.
-          - customDepthMaterial: Forces it to cast a SOLID shadow even when fading.
-      */}
+      {/* BASE MESH */}
       <mesh
         geometry={baseGeometry}
         scale={[1, 1, 0.8]}
         castShadow
         receiveShadow
         renderOrder={-1}
-        customDepthMaterial={solidDepthMaterial} // <--- KEEPS FLASHLIGHT BLOCKED
+        customDepthMaterial={solidDepthMaterial}
       >
         <primitive
           object={baseMaterial}
           attach="material"
-          transparent={true} // Always allow transparency handling
+          transparent={true}
           opacity={opacity}
-          depthWrite={!isTransparent} // Stop writing depth when fading to fix sorting
+          depthWrite={!isTransparent}
         />
       </mesh>
 
@@ -127,7 +120,7 @@ export const SmartWall: React.FC<SmartWallProps> = ({
           transparent={true}
           opacity={opacity}
           alphaTest={0.1}
-          depthWrite={!isTransparent} // Stop writing depth when fading to fix sorting
+          depthWrite={!isTransparent}
         />
       </mesh>
     </group>

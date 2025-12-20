@@ -6,18 +6,6 @@ import { useKeyboard } from '../../hooks/useKeyboard';
 import { TILE_SIZE, TILE_TYPES, generateCollisionGrid } from './MapData';
 import { getTileDef } from '../../data/TileRegistry';
 
-// Re-declare helper locally to avoid dependencies/export issues
-const isStructure = (v: number) => {
-  const def = getTileDef(v);
-  return (
-    def &&
-    (def.type === 'wall' ||
-      v === TILE_TYPES.DOOR_CLOSED ||
-      v === TILE_TYPES.DOOR_OPEN ||
-      v === TILE_TYPES.DOOR_LOCKED_SILVER)
-  );
-};
-
 interface PlayerControllerProps {
   map: number[][];
   onInteract: (x: number, z: number) => void;
@@ -56,7 +44,6 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
 
     const tileType = map[gridZ][gridX];
 
-    // Door Hitbox (Center of tile)
     if (tileType === TILE_TYPES.DOOR_CLOSED || tileType === TILE_TYPES.DOOR_LOCKED_SILVER) {
       const dx = nextX - gridX * TILE_SIZE;
       const dz = nextZ - gridZ * TILE_SIZE;
@@ -76,29 +63,36 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
           let halfW = TILE_SIZE / 2;
           let halfD = TILE_SIZE / 2;
 
-          // --- DYNAMIC HITBOX ROTATION ---
           if (id !== 0) {
             const def = getTileDef(id);
             if (def.id === 100 || def.type !== 'wall') {
-              // Default full block
+              // Default
             } else {
               const valNorth = z > 0 ? map[z - 1][x] : 0;
               const valSouth = z < map.length - 1 ? map[z + 1][x] : 0;
               const valWest = x > 0 ? map[z][x - 1] : 0;
               const valEast = x < map[0].length - 1 ? map[z][x + 1] : 0;
 
-              // Vertical Chain check
+              const isStructure = (v: number) => {
+                const d = getTileDef(v);
+                return (
+                  d &&
+                  (d.type === 'wall' ||
+                    v === TILE_TYPES.DOOR_CLOSED ||
+                    v === TILE_TYPES.DOOR_OPEN ||
+                    v === TILE_TYPES.DOOR_LOCKED_SILVER)
+                );
+              };
+
               const isVertical =
                 (isStructure(valNorth) || isStructure(valSouth)) &&
                 !isStructure(valWest) &&
                 !isStructure(valEast);
 
               if (isVertical) {
-                // Rotated: Thin on X, Wide on Z
                 halfW = WALL_THICKNESS / 2;
                 halfD = TILE_SIZE / 2;
               } else {
-                // Standard: Wide on X, Thin on Z
                 halfW = TILE_SIZE / 2;
                 halfD = WALL_THICKNESS / 2;
               }
@@ -287,7 +281,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         shadow-normalBias={0.05}
         color="#fffbd6"
       />
-      <Character action={animation} direction={direction} position={[0, 0, 0]} />
+      <Character action={animation} direction={direction} position={[0, 0.15, 0]} />
     </group>
   );
 };
