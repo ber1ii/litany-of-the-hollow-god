@@ -1,24 +1,37 @@
 import * as THREE from 'three';
 import { TILE_SIZE } from '../components/Game/MapData';
+import type { TileDef } from '../data/TileRegistry';
+import { getAtlasUVs } from './GeometryUtils';
 
-// Returns one group per wall tile
+// Thickness Constant (0.25 = 1/4th of a tile)
+const WALL_THICKNESS = 0.25;
+
 export const getWallGroups = (map: number[][]) => {
-  const groups: { x: number; z: number }[][] = [];
+  const groups: { x: number; z: number; id: number }[][] = [];
+  const visited = new Set<string>();
+
   for (let row = 0; row < map.length; row++) {
     for (let col = 0; col < map[row].length; col++) {
-      if (map[row][col] === 1) {
-        groups.push([{ x: col, z: row }]);
+      const tileId = map[row][col];
+      // ID 1 = Generic, ID >= 50 = Custom Anchor
+      const isWall = tileId === 1 || tileId >= 50;
+
+      if (isWall && !visited.has(`${col},${row}`)) {
+        groups.push([{ x: col, z: row, id: tileId }]);
+        visited.add(`${col},${row}`);
       }
     }
   }
   return groups;
 };
 
-export const createWallGeometry = (
-  group: { x: number; z: number }[],
-  map: number[][],
-  forceFaces: string[] = []
-) => {
+interface CullOptions {
+  left?: boolean; // Cull West Face
+  right?: boolean; // Cull East Face
+}
+
+// Generates geometry in LOCAL space (centered at 0,0,0)
+export const createWallGeometry = (tileDef: TileDef, cullFaces: CullOptions = {}) => {
   const vertices: number[] = [];
   const normals: number[] = [];
   const uvs: number[] = [];
@@ -26,18 +39,64 @@ export const createWallGeometry = (
 
   let indexOffset = 0;
 
+  // 1. Calculate Main Face UVs
+  const mainUV = getAtlasUVs(
+    tileDef.atlasPos.col,
+    tileDef.atlasPos.row,
+    tileDef.size.w,
+    tileDef.size.h
+  );
+
+  // 2. Side UVs (Dark pixel)
+  const sideUV = getAtlasUVs(0, 0, 1, 1);
+
   const addFace = (
     v1: number[],
     v2: number[],
     v3: number[],
     v4: number[],
     normal: number[],
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _uvType: 'side' | 'top'
+    faceType: 'main' | 'side' | 'top'
   ) => {
     vertices.push(...v1, ...v2, ...v3, ...v4);
     normals.push(...normal, ...normal, ...normal, ...normal);
-    uvs.push(0, 0, 1, 0, 1, 1, 0, 1);
+
+    if (faceType === 'main') {
+      uvs.push(
+        mainUV.uMin,
+        mainUV.vMin,
+        mainUV.uMax,
+        mainUV.vMin,
+        mainUV.uMax,
+        mainUV.vMax,
+        mainUV.uMin,
+        mainUV.vMax
+      );
+    } else if (faceType === 'side') {
+      uvs.push(
+        sideUV.uMin,
+        sideUV.vMin,
+        sideUV.uMax,
+        sideUV.vMin,
+        sideUV.uMax,
+        sideUV.vMax,
+        sideUV.uMin,
+        sideUV.vMax
+      );
+    } else {
+      const topUV = getAtlasUVs(46, 13, 1, 1);
+      uvs.push(
+        topUV.uMin,
+        topUV.vMin,
+        topUV.uMax,
+        topUV.vMin,
+        topUV.uMax,
+        topUV.vMax,
+        topUV.uMin,
+        topUV.vMax
+      );
+    }
+
     indices.push(
       indexOffset,
       indexOffset + 1,
@@ -49,89 +108,38 @@ export const createWallGeometry = (
     indexOffset += 4;
   };
 
-  const isWall = (gx: number, gz: number) => {
-    if (gz < 0 || gz >= map.length || gx < 0 || gx >= map[0].length) return false;
-    return map[gz][gx] === 1;
-  };
+  // Dimensions
+  const width = tileDef.size.w * TILE_SIZE;
+  const height = tileDef.size.h * TILE_SIZE;
 
-  const getCoords = (x: number, z: number) => {
-    const worldX = x * TILE_SIZE;
-    const worldZ = z * TILE_SIZE;
-    return {
-      x,
-      z,
-      yBot: 0,
-      yTop: 2,
-      xL: worldX - TILE_SIZE / 2,
-      xR: worldX + TILE_SIZE / 2,
-      zF: worldZ - TILE_SIZE / 2,
-      zB: worldZ + TILE_SIZE / 2,
-    };
-  };
+  // LOCAL COORDINATES: Centered on X/Z, Bottom at Y=0
+  const xL = -width / 2;
+  const xR = width / 2;
+  const zF = -WALL_THICKNESS / 2;
+  const zB = WALL_THICKNESS / 2;
+  const yBot = 0;
+  const yTop = height;
 
-  // PASS 1: Generate SIDES
-  group.forEach(({ x, z }) => {
-    const c = getCoords(x, z);
+  // South Face (Back)
+  addFace([xL, yBot, zB], [xR, yBot, zB], [xR, yTop, zB], [xL, yTop, zB], [0, 0, 1], 'main');
 
-    // North Face (Checks Z-1) OR Forced 'N'
-    if (!isWall(x, z - 1) || forceFaces.includes('N'))
-      addFace(
-        [c.xR, c.yBot, c.zF],
-        [c.xL, c.yBot, c.zF],
-        [c.xL, c.yTop, c.zF],
-        [c.xR, c.yTop, c.zF],
-        [0, 0, -1],
-        'side'
-      );
+  // North Face (Front)
+  addFace([xR, yBot, zF], [xL, yBot, zF], [xL, yTop, zF], [xR, yTop, zF], [0, 0, -1], 'main');
 
-    // South Face (Checks Z+1) OR Forced 'S'
-    if (!isWall(x, z + 1) || forceFaces.includes('S'))
-      addFace(
-        [c.xL, c.yBot, c.zB],
-        [c.xR, c.yBot, c.zB],
-        [c.xR, c.yTop, c.zB],
-        [c.xL, c.yTop, c.zB],
-        [0, 0, 1],
-        'side'
-      );
+  // West Face (Left) - Only add if NOT culled
+  if (!cullFaces.left) {
+    addFace([xL, yBot, zF], [xL, yBot, zB], [xL, yTop, zB], [xL, yTop, zF], [-1, 0, 0], 'side');
+  }
 
-    // West Face (Checks X-1) OR Forced 'W'
-    if (!isWall(x - 1, z) || forceFaces.includes('W'))
-      addFace(
-        [c.xL, c.yBot, c.zF],
-        [c.xL, c.yBot, c.zB],
-        [c.xL, c.yTop, c.zB],
-        [c.xL, c.yTop, c.zF],
-        [-1, 0, 0],
-        'side'
-      );
-
-    // East Face (Checks X+1) OR Forced 'E'
-    if (!isWall(x + 1, z) || forceFaces.includes('E'))
-      addFace(
-        [c.xR, c.yBot, c.zB],
-        [c.xR, c.yBot, c.zF],
-        [c.xR, c.yTop, c.zF],
-        [c.xR, c.yTop, c.zB],
-        [1, 0, 0],
-        'side'
-      );
-  });
+  // East Face (Right) - Only add if NOT culled
+  if (!cullFaces.right) {
+    addFace([xR, yBot, zB], [xR, yBot, zF], [xR, yTop, zF], [xR, yTop, zB], [1, 0, 0], 'side');
+  }
 
   const sideIndicesCount = indices.length;
 
-  // PASS 2: Generate TOPS
-  group.forEach(({ x, z }) => {
-    const c = getCoords(x, z);
-    addFace(
-      [c.xL, c.yTop, c.zB],
-      [c.xR, c.yTop, c.zB],
-      [c.xR, c.yTop, c.zF],
-      [c.xL, c.yTop, c.zF],
-      [0, 1, 0],
-      'top'
-    );
-  });
+  // Top Face
+  addFace([xL, yTop, zB], [xR, yTop, zB], [xR, yTop, zF], [xL, yTop, zF], [0, 1, 0], 'top');
 
   const topIndicesCount = indices.length - sideIndicesCount;
 
@@ -145,6 +153,42 @@ export const createWallGeometry = (
   geometry.addGroup(sideIndicesCount, topIndicesCount, 1);
 
   geometry.computeBoundingBox();
+  return geometry;
+};
 
+// Floor generator (unchanged)
+export const createFloorGeometry = (x: number, z: number, tileDef: TileDef) => {
+  const vertices: number[] = [];
+  const normals: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+
+  const { uMin, uMax, vMin, vMax } = getAtlasUVs(
+    tileDef.atlasPos.col,
+    tileDef.atlasPos.row,
+    tileDef.size.w,
+    tileDef.size.h
+  );
+
+  const anchorX = x * TILE_SIZE;
+  const anchorZ = z * TILE_SIZE;
+  const half = TILE_SIZE / 2;
+
+  const xL = anchorX - half;
+  const xR = anchorX - half + tileDef.size.w * TILE_SIZE;
+  const zF = anchorZ - half;
+  const zB = anchorZ - half + tileDef.size.h * TILE_SIZE;
+  const y = 0;
+
+  vertices.push(xL, y, zB, xR, y, zB, xR, y, zF, xL, y, zF);
+  normals.push(0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0);
+  uvs.push(uMin, vMin, uMax, vMin, uMax, vMax, uMin, vMax);
+  indices.push(0, 1, 2, 0, 2, 3);
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+  geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
   return geometry;
 };

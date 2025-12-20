@@ -1,4 +1,4 @@
-import React, { useRef, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo } from 'react';
 import { useTexture, Billboard } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
@@ -6,19 +6,23 @@ import { getSpritePaths } from '../../utils/assetUtils';
 import { TILE_SIZE } from './MapData';
 
 interface MonsterProps {
+  id: string;
   type: 'skeleton';
   startX: number;
   startZ: number;
   playerPos: THREE.Vector3;
   onCombatStart: () => void;
+  enemyTracker: React.RefObject<Map<string, { x: number; z: number }>>;
 }
 
 export const Monster: React.FC<MonsterProps> = ({
+  id,
   type,
   startX,
   startZ,
   playerPos,
   onCombatStart,
+  enemyTracker,
 }) => {
   // AI State
   const [direction, setDirection] = useState('S');
@@ -28,7 +32,7 @@ export const Monster: React.FC<MonsterProps> = ({
   const groupRef = useRef<THREE.Group>(null);
   const materialRef = useRef<THREE.MeshStandardMaterial>(null);
   const patrolDir = useRef(1);
-  const currentPos = useRef(new THREE.Vector3(startX * TILE_SIZE, 0.5, startZ * TILE_SIZE));
+  const currentPos = useRef(new THREE.Vector3(startX * TILE_SIZE, 0.15, startZ * TILE_SIZE));
 
   // Latch to track combat encounter later (prevent 60fps triggers)
   const hasTriggeredCombat = useRef(false);
@@ -46,6 +50,14 @@ export const Monster: React.FC<MonsterProps> = ({
     });
     return arr;
   }, [result]);
+
+  useEffect(() => {
+    return () => {
+      if (enemyTracker.current) {
+        enemyTracker.current.delete(id);
+      }
+    };
+  }, [id, enemyTracker]);
 
   // Game loop
   useFrame((state, delta) => {
@@ -81,16 +93,33 @@ export const Monster: React.FC<MonsterProps> = ({
       materialRef.current.map = textures[frameIndex];
     }
 
+    // UPDATE TRACKER
+    if (enemyTracker.current) {
+      enemyTracker.current.set(id, {
+        x: currentPos.current.x,
+        z: currentPos.current.z,
+      });
+    }
+
     // --- COMBAT ---
-    if (!hasTriggeredCombat.current && currentPos.current.distanceTo(playerPos) < 0.4) {
-      console.log('Combat Triggered!');
-      hasTriggeredCombat.current = true;
-      onCombatStart();
+    if (!hasTriggeredCombat.current) {
+      // 1. Calculate 2D distance (Horizontal only)
+      //    This ignores the height difference (0.5 vs 0.15)
+      const dx = currentPos.current.x - playerPos.x;
+      const dz = currentPos.current.z - playerPos.z;
+      const distance2D = Math.sqrt(dx * dx + dz * dz);
+
+      // 2. Trigger at 0.5 distance (half a tile)
+      if (distance2D < 0.5) {
+        console.log('Combat Triggered!');
+        hasTriggeredCombat.current = true;
+        onCombatStart();
+      }
     }
   });
 
   return (
-    <group ref={groupRef} position={[startX * TILE_SIZE, 0.5, startZ * TILE_SIZE]}>
+    <group ref={groupRef} position={[startX * TILE_SIZE, 0.15, startZ * TILE_SIZE]}>
       <Billboard lockX={false} lockY={false} lockZ={false}>
         <mesh>
           <planeGeometry args={[2, 2]} />

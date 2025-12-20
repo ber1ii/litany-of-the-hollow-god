@@ -7,30 +7,50 @@ export const SHEET_CONFIG = {
 export interface TileDef {
   id: number;
   name: string;
-  type: 'floor' | 'wall' | 'prop';
+  type: 'floor' | 'wall' | 'prop' | 'item';
   atlasPos: { col: number; row: number };
-  size?: { w: number; h: number }; // Size in "tiles" (e.g., 1x1, 2x2)
+  size: { w: number; h: number }; // Size in "tiles"
   solid?: boolean;
 }
 
 export const TILE_REGISTRY: Record<number, TileDef> = {
-  // Special
+  // --- SPECIAL / DEFAULTS ---
   0: {
     id: 0,
     name: 'standard_floor',
     type: 'floor',
-    atlasPos: { col: 46, row: 13 }, // Uses top-left of stone floor block
+    atlasPos: { col: 46, row: 13 },
     size: { w: 1, h: 1 },
+    solid: false,
   },
-
-  // --- FLOORS ---
   2: {
     id: 2,
     name: 'base_floor',
     type: 'floor',
     atlasPos: { col: 46, row: 13 },
     size: { w: 1, h: 1 },
+    solid: false,
   },
+
+  // --- ITEMS & MOBS (Fix for walkability) ---
+  4: {
+    id: 4,
+    name: 'gold',
+    type: 'item',
+    atlasPos: { col: 0, row: 0 }, // Position doesn't matter for logic, just registry existence
+    size: { w: 1, h: 1 },
+    solid: false,
+  },
+  5: {
+    id: 5,
+    name: 'skeleton',
+    type: 'item',
+    atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: false,
+  },
+
+  // --- FLOORS ---
   10: {
     id: 10,
     name: 'stone_floor_1',
@@ -88,17 +108,25 @@ export const TILE_REGISTRY: Record<number, TileDef> = {
     size: { w: 2, h: 2 },
   },
 
-  // Walls
-  // Basic Wall 1(19,21) 4x3
-  50: {
-    id: 50,
-    name: 'basic_wall_1',
+  // --- WALLS ---
+  1: {
+    id: 1,
+    name: 'wall_generic',
     type: 'wall',
-    atlasPos: { col: 19, row: 21 },
-    size: { w: 4, h: 3 },
+    atlasPos: { col: 25, row: 7 },
+    size: { w: 1, h: 5 },
     solid: true,
   },
-  // Long Wall 1(3,12) 14x5
+  // 1st Element: Huge building
+  100: {
+    id: 100,
+    name: 'huge_building',
+    type: 'wall',
+    atlasPos: { col: 1, row: 2 },
+    size: { w: 18, h: 10 },
+    solid: true,
+  },
+  // 2nd Element: Long Wall 1
   51: {
     id: 51,
     name: 'long_wall_1',
@@ -107,7 +135,34 @@ export const TILE_REGISTRY: Record<number, TileDef> = {
     size: { w: 14, h: 5 },
     solid: true,
   },
-  // Dark Archway(40,0) 5x6
+  // 11th Element: Double Archway
+  53: {
+    id: 53,
+    name: 'double_archway',
+    type: 'wall',
+    atlasPos: { col: 17, row: 1 },
+    size: { w: 5, h: 11 },
+    solid: true,
+  },
+  // 12th Element: Single Archway
+  55: {
+    id: 55,
+    name: 'single_archway',
+    type: 'wall',
+    atlasPos: { col: 25, row: 1 },
+    size: { w: 5, h: 6 },
+    solid: true,
+  },
+  // 19th Element: Basic Wall 1
+  50: {
+    id: 50,
+    name: 'basic_wall_1',
+    type: 'wall',
+    atlasPos: { col: 19, row: 21 },
+    size: { w: 4, h: 3 },
+    solid: true,
+  },
+  // 34th Element: Dark Archway
   52: {
     id: 52,
     name: 'dark_archway',
@@ -116,8 +171,26 @@ export const TILE_REGISTRY: Record<number, TileDef> = {
     size: { w: 5, h: 6 },
     solid: true,
   },
+  // 16th Element: Wall with bars
+  54: {
+    id: 54,
+    name: 'wall_bars',
+    type: 'wall',
+    atlasPos: { col: 16, row: 13 },
+    size: { w: 5, h: 3 },
+    solid: true,
+  },
+  // 5th Element: Wall Pillar 1
+  60: {
+    id: 60,
+    name: 'wall_pillar_1',
+    type: 'wall',
+    atlasPos: { col: 1, row: 21 },
+    size: { w: 2, h: 5 },
+    solid: true,
+  },
 };
 
 export const getTileDef = (id: number): TileDef => {
-  return TILE_REGISTRY[id] || TILE_REGISTRY[0];
+  return TILE_REGISTRY[id] || TILE_REGISTRY[1];
 };

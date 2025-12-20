@@ -30,30 +30,26 @@ export const AtlasFloor: React.FC<AtlasFloorProps> = ({ map }) => {
 
     map.forEach((row, z) => {
       row.forEach((tileId, x) => {
-        const tileDef = getTileDef(tileId);
+        let tileDef = getTileDef(tileId);
 
-        if (tileDef.type !== 'floor') return;
+        // Fallback to base floor for walls/props so there's no void
+        if (tileDef.type !== 'floor') {
+          tileDef = getTileDef(2);
+        }
 
-        // --- POSITIONING ---
-        // Center of the placement grid cell
         const xCenter = x * TILE_SIZE;
         const zCenter = z * TILE_SIZE;
-        const yPos = 0.1;
 
-        // Calculate dimensions based on tile size
+        // Standard floor height at 0. Items will be at 0.05.
+        const yPos = 0;
+
         const sizeW = tileDef.size?.w ?? 1;
         const sizeH = tileDef.size?.h ?? 1;
-
         const width = sizeW * TILE_SIZE;
         const height = sizeH * TILE_SIZE;
-
-        // Calculate offsets to center the larger tile on the grid point
         const halfW = width / 2;
         const halfH = height / 2;
 
-        // --- VERTICES ---
-        // Create a flat plaen at Y = 0
-        // Order: Bottom-left, Bottom-right, Top-Right, Top-Left
         vertices.push(
           xCenter - halfW,
           yPos,
@@ -69,8 +65,6 @@ export const AtlasFloor: React.FC<AtlasFloorProps> = ({ map }) => {
           zCenter - halfH // TL
         );
 
-        // --- UVS ---
-        // Get the slice coordinates from the spritesheet
         const { uMin, uMax, vMin, vMax } = getAtlasUVs(
           tileDef.atlasPos.col,
           tileDef.atlasPos.row,
@@ -78,19 +72,8 @@ export const AtlasFloor: React.FC<AtlasFloorProps> = ({ map }) => {
           sizeH
         );
 
-        uvs.push(
-          uMin,
-          vMin, // BL
-          uMax,
-          vMin, // BR
-          uMax,
-          vMax, // TR
-          uMin,
-          vMax // TL
-        );
+        uvs.push(uMin, vMin, uMax, vMin, uMax, vMax, uMin, vMax);
 
-        // --- Indices ---
-        // Standard Quad (2 triangles)
         indices.push(
           indexOffset,
           indexOffset + 1,
@@ -112,14 +95,8 @@ export const AtlasFloor: React.FC<AtlasFloorProps> = ({ map }) => {
   }, [map]);
 
   return (
-    <mesh geometry={geometry} receiveShadow>
-      <meshStandardMaterial
-        map={texture}
-        transparent
-        alphaTest={0.5}
-        roughness={0.9}
-        color="#888888" // Tint slightly dark for atmosphere
-      />
+    <mesh geometry={geometry} receiveShadow rotation={[-Math.PI / 2, 0, 0]} rotation-x={0}>
+      <meshStandardMaterial map={texture} roughness={0.9} color="#888888" />
     </mesh>
   );
 };

@@ -43,7 +43,7 @@ export const Gold: React.FC<GoldProps> = ({ x, z }) => {
   });
 
   return (
-    <mesh ref={meshRef} position={[x * TILE_SIZE, 0.5, z * TILE_SIZE]} scale={[0.8, 0.8, 0.8]}>
+    <mesh ref={meshRef} position={[x * TILE_SIZE, 0.15, z * TILE_SIZE]} scale={[0.8, 0.8, 0.8]}>
       <planeGeometry args={[1, 1]} />
       <meshStandardMaterial
         ref={materialRef}
