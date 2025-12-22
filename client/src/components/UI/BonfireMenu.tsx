@@ -4,22 +4,26 @@ interface BonfireMenuProps {
   onClose: () => void;
   onQuit: () => void;
   onRest: () => void;
-  onLevelUp: () => void; // NEW
+  onLevelUp: () => void;
+  onSkillTree: () => void;
 }
 
-export const BonfireMenu: React.FC<BonfireMenuProps> = ({ onClose, onQuit, onRest, onLevelUp }) => {
+export const BonfireMenu: React.FC<BonfireMenuProps> = ({
+  onClose,
+  onQuit,
+  onRest,
+  onLevelUp,
+  onSkillTree,
+}) => {
   const menuOptions = useMemo(
     () => [
-      { label: 'Level Up', action: onLevelUp }, // Wired up
-      {
-        label: 'Rest',
-        action: onRest,
-      },
-      { label: 'Manage Equipment', action: () => console.log('Equip clicked') },
+      { label: 'Level Up', action: onLevelUp },
+      { label: 'Learn Skills', action: onSkillTree },
+      { label: 'Rest', action: onRest },
       { label: 'Quit to Title', action: onQuit },
       { label: 'Leave Bonfire', action: onClose },
     ],
-    [onClose, onQuit, onRest, onLevelUp]
+    [onClose, onQuit, onRest, onLevelUp, onSkillTree]
   );
 
   const [selectedIndex, setSelectedIndex] = useState(0);

@@ -53,6 +53,24 @@ export const ITEM_REGISTRY: Record<string, ItemDef> = {
     stackable: false,
     stats: { attack: 5 },
   },
+  wooden_staff: {
+    id: 'wooden_staff',
+    name: 'Wooden Staff',
+    type: 'weapon',
+    icon: '/sprites/items/weapons/sword_rusty.png',
+    description: 'A crooked branch pulsing with faint heat.',
+    stackable: false,
+    stats: { attack: 4 },
+  },
+  dagger: {
+    id: 'dagger',
+    name: 'Dagger',
+    type: 'weapon',
+    icon: '/sprites/items/weapons/sword_rusty.png',
+    description: 'Short, serrated, and cruel.',
+    stackable: false,
+    stats: { attack: 4 },
+  },
 
   // --- KEYS / QUEST ---
   silver_key: {

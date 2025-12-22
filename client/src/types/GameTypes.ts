@@ -1,6 +1,9 @@
 import type { ItemDef } from '../data/ItemRegistry';
+import type { ClassId } from '../data/Classes';
 
 export interface PlayerStats {
+  // ID
+  classId: ClassId;
   // Core Vitals
   hp: number;
   maxHp: number;
@@ -32,6 +35,9 @@ export interface PlayerStats {
 
   // Active Effects (Buffs/Debuffs)
   statusEffects: StatusEffect[];
+
+  // Skills
+  unlockedSkills: string[];
 }
 
 export type InventoryItem = ItemDef & { count: number };
@@ -111,6 +117,7 @@ export interface CombatEnemyInstance {
 }
 
 export const INITIAL_STATS: PlayerStats = {
+  classId: 'KNIGHT',
   // Vitals
   hp: 100,
   maxHp: 100,
@@ -121,8 +128,8 @@ export const INITIAL_STATS: PlayerStats = {
 
   // Resources
   level: 1,
-  xp: 0,
-  gold: 0,
+  xp: 500,
+  gold: 1000,
 
   // Knight Class Defaults (Fallback)
   vitality: 10,
@@ -142,4 +149,7 @@ export const INITIAL_STATS: PlayerStats = {
 
   // Effects
   statusEffects: [],
+
+  // Skills
+  unlockedSkills: [],
 };

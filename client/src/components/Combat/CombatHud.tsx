@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import type { PlayerStats, CombatEnemyInstance } from '../../types/GameTypes';
+import type { PlayerStats, CombatEnemyInstance, InventoryItem } from '../../types/GameTypes';
+import { SKILL_DATABASE } from '../../data/Skills';
+import { WEAPON_TYPES, WEAPON_ATTACKS } from '../../data/WeaponRegistry';
 
 interface CombatHudProps {
   combatState:
@@ -10,17 +12,15 @@ interface CombatHudProps {
     | 'enemy_acting'
     | 'victory'
     | 'defeat';
-  // FIX: Added 'move_select' and 'skill_select' to union type
   menuState: 'main' | 'attack_select' | 'items' | 'move_select' | 'skill_select';
   setMenuState: (
     state: 'main' | 'attack_select' | 'items' | 'move_select' | 'skill_select'
   ) => void;
   playerStats: PlayerStats;
-
   enemyInstance: CombatEnemyInstance | null;
-
   onAction: (actionId: string) => void;
   onLeave: (victory: boolean) => void;
+  inventory: InventoryItem[];
 }
 
 interface CombatMenuOption {
@@ -32,6 +32,12 @@ interface CombatMenuOption {
   color?: string;
 }
 
+// Helper: Find equipped weapon
+const getEquippedWeaponId = (inventory: InventoryItem[]) => {
+  const weapon = inventory.find((i) => i.type === 'weapon');
+  return weapon ? weapon.id : 'rusty_sword';
+};
+
 export const CombatHud: React.FC<CombatHudProps> = ({
   combatState,
   menuState,
@@ -40,11 +46,19 @@ export const CombatHud: React.FC<CombatHudProps> = ({
   enemyInstance,
   onAction,
   onLeave,
+  inventory,
 }) => {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [prevCombatState, setPrevCombatState] = useState(combatState);
 
-  const [selectedMove, setSelectedMove] = useState<'slash' | 'heavy'>('slash');
+  // Determine available attacks based on weapon
+  const weaponId = useMemo(() => getEquippedWeaponId(inventory || []), [inventory]);
+  const availableAttacks = useMemo(
+    () => WEAPON_TYPES[weaponId] || WEAPON_TYPES['rusty_sword'],
+    [weaponId]
+  );
+
+  const [selectedMove, setSelectedMove] = useState<string>(availableAttacks[0]);
 
   if (combatState !== prevCombatState) {
     setPrevCombatState(combatState);
@@ -80,27 +94,32 @@ export const CombatHud: React.FC<CombatHudProps> = ({
           { label: 'Flee', action: () => {}, disabled: true },
         ];
       } else if (menuState === 'move_select') {
+        // Dynamic Attack List
+        const attackOptions = availableAttacks
+          .map((attackId) => {
+            const def = WEAPON_ATTACKS[attackId];
+
+            // Safety Check
+            if (!def) {
+              console.warn(`Missing weapon attack definition for ID: ${attackId}`);
+              return null;
+            }
+
+            return {
+              label: def.name,
+              subtext: def.description,
+              action: () => {
+                setSelectedMove(attackId);
+                setMenuState('attack_select');
+                setSelectedIndex(0);
+              },
+              disabled: false,
+            };
+          })
+          .filter((opt) => opt !== null) as CombatMenuOption[];
+
         return [
-          {
-            label: 'Slash',
-            subtext: 'Standard Attack',
-            action: () => {
-              setSelectedMove('slash');
-              setMenuState('attack_select');
-              setSelectedIndex(0);
-            },
-            disabled: false,
-          },
-          {
-            label: 'Heavy',
-            subtext: 'High Dmg / Low Acc',
-            action: () => {
-              setSelectedMove('heavy');
-              setMenuState('attack_select');
-              setSelectedIndex(0);
-            },
-            disabled: false,
-          },
+          ...attackOptions,
           {
             label: 'Back',
             action: () => {
@@ -112,11 +131,15 @@ export const CombatHud: React.FC<CombatHudProps> = ({
           },
         ];
       } else if (menuState === 'attack_select' && enemyInstance) {
+        // Limb Targeting
+        const attackDef = WEAPON_ATTACKS[selectedMove];
         const limbOptions = enemyInstance.parts.map((part) => {
-          let hitChance = 90 + part.hitChanceMod;
-          if (selectedMove === 'heavy') hitChance -= 20;
-
+          const hitChance = Math.min(
+            100,
+            Math.max(0, 90 + part.hitChanceMod + (attackDef?.accuracyMod || 0))
+          );
           const isDead = part.isSevered;
+
           return {
             label: part.name,
             action: () => onAction(`${selectedMove}|${part.id}`),
@@ -139,14 +162,25 @@ export const CombatHud: React.FC<CombatHudProps> = ({
           },
         ];
       } else if (menuState === 'skill_select') {
+        const unlocked = playerStats.unlockedSkills || [];
+
+        const skillOptions = unlocked
+          .map((skillId) => {
+            const def = SKILL_DATABASE[skillId];
+            if (!def) return null;
+
+            return {
+              label: def.name,
+              subtext: `${def.cost ? def.cost + ' MP' : ''} ${def.description}`,
+              action: () => onAction(`skill:${def.id}`),
+              disabled: (def.cost || 0) > playerStats.mp,
+              icon: '★',
+            };
+          })
+          .filter(Boolean) as CombatMenuOption[];
+
         return [
-          {
-            label: 'Pray',
-            subtext: 'Heal + Dmg Buff',
-            action: () => onAction('skill:pray'),
-            disabled: false,
-            icon: '✝',
-          },
+          ...skillOptions,
           {
             label: 'Back',
             action: () => {
@@ -160,8 +194,20 @@ export const CombatHud: React.FC<CombatHudProps> = ({
       }
     }
     return [];
-  }, [combatState, menuState, setMenuState, onAction, onLeave, enemyInstance, selectedMove]);
+  }, [
+    combatState,
+    menuState,
+    setMenuState,
+    onAction,
+    onLeave,
+    enemyInstance,
+    selectedMove,
+    playerStats.mp,
+    playerStats.unlockedSkills,
+    availableAttacks,
+  ]);
 
+  // Key Handler
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!['player_turn', 'victory', 'defeat'].includes(combatState)) return;

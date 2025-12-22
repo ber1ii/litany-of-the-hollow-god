@@ -20,6 +20,7 @@ import { LevelUpMenu } from '../UI/LevelUpMenu';
 import { LEVEL_REGISTRY, INITIAL_LEVEL_ID } from '../../data/LevelRegistry';
 import { SaveManager } from '../../utils/SaveManager';
 import type { SaveData } from '../../utils/SaveManager';
+import { SkillTree } from '../UI/SkillTree';
 
 const FOG_COLOR = '#080810';
 
@@ -133,6 +134,7 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
   const [isInventoryOpen, setInventoryOpen] = useState(false);
   const [isBonfireMenuOpen, setBonfireMenuOpen] = useState(false);
   const [isLevelUpOpen, setLevelUpOpen] = useState(false);
+  const [isSkillTreeOpen, setSkillTreeOpen] = useState(false);
 
   const [isSaving, setIsSaving] = useState(false);
 
@@ -155,6 +157,14 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
       levelChanges.current.set(currentLevelId, new Map());
     }
     levelChanges.current.get(currentLevelId)?.set(`${x},${z}`, newTileId);
+  };
+
+  const handleSkillUnlock = (skillId: string, cost: number) => {
+    setStats((prev) => ({
+      ...prev,
+      xp: prev.xp - cost,
+      unlockedSkills: [...prev.unlockedSkills, skillId],
+    }));
   };
 
   const handleRest = async (statsOverride?: PlayerStats) => {
@@ -441,6 +451,18 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
           onQuit={onExit}
           onRest={() => handleRest()}
           onLevelUp={() => setLevelUpOpen(true)}
+          onSkillTree={() => {
+            setBonfireMenuOpen(false);
+            setSkillTreeOpen(true);
+          }}
+        />
+      )}
+
+      {isSkillTreeOpen && (
+        <SkillTree
+          stats={stats}
+          onClose={() => setSkillTreeOpen(false)}
+          onUnlock={handleSkillUnlock}
         />
       )}
 
@@ -519,6 +541,7 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
           enemyInstance={combatEnemy}
           onAction={handlePlayerAction}
           onLeave={(victory) => endCombat({ victory, hpRemaining: stats.hp })}
+          inventory={inventory}
         />
       )}
 

@@ -9,6 +9,7 @@ export interface ClassDef {
   tagline: string;
   baseStats: Partial<PlayerStats>;
   startingItems: { id: string; count: number }[];
+  startingSkills: string[];
 }
 
 export const CLASSES: Record<ClassId, ClassDef> = {
@@ -38,6 +39,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
       { id: 'flask_cerulean', count: 1 },
       { id: 'rusty_sword', count: 1 },
     ],
+    startingSkills: ['pray'],
   },
   ASSASSIN: {
     id: 'ASSASSIN',
@@ -63,8 +65,9 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     startingItems: [
       { id: 'flask_crimson', count: 2 },
       { id: 'flask_cerulean', count: 2 },
-      { id: 'rusty_sword', count: 1 }, // Placeholder for Dagger
+      { id: 'dagger', count: 1 },
     ],
+    startingSkills: ['death_mark'],
   },
   MAGE: {
     id: 'MAGE',
@@ -89,7 +92,8 @@ export const CLASSES: Record<ClassId, ClassDef> = {
     startingItems: [
       { id: 'flask_crimson', count: 2 },
       { id: 'flask_cerulean', count: 3 },
-      { id: 'rusty_sword', count: 1 },
+      { id: 'wooden_staff', count: 1 },
     ],
+    startingSkills: ['flame_of_frenzy'],
   },
 };

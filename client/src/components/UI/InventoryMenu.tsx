@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import type { InventoryItem } from '../../App';
+import type { InventoryItem } from '../../types/GameTypes';
 
 interface InventoryMenuProps {
   inventory: InventoryItem[];

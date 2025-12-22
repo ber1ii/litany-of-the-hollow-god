@@ -1,4 +1,7 @@
 import { useTexture } from '@react-three/drei';
+// Import the preloaders
+import { preloadPlayerAssets } from '../components/Combat/CombatPlayer';
+import { preloadEnemyAssets } from '../components/Combat/CombatEnemy';
 
 const FRAME_COUNTS: Record<string, number> = {
   walk: 8,
@@ -18,21 +21,8 @@ export const getSpritePaths = (character: string, action: string, direction: str
   return paths;
 };
 
-const COMBAT_TEXTURES = [
-  // Knight
-  '/sprites/combat/knight/Idle.png',
-  '/sprites/combat/knight/attack1.png',
-  '/sprites/combat/knight/attack2.png',
-  '/sprites/combat/knight/Hurt.png',
-  '/sprites/combat/knight/Death.png',
-  '/sprites/combat/knight/Pray.png',
-  '/sprites/combat/skeleton/idle.png',
-  '/sprites/combat/skeleton/attack.png',
-  '/sprites/combat/skeleton/hurt.png',
-  '/sprites/combat/skeleton/death.png',
-];
-
 export const preloadAllAssets = () => {
+  // 1. Preload Roam Sprites (Hero & Enemies on Map)
   const characters = ['hero', 'skeleton'];
   const actions = ['idle', 'walk'];
 
@@ -44,8 +34,20 @@ export const preloadAllAssets = () => {
       });
     });
   });
+  console.log('Roam Assets Preloaded');
 
-  useTexture.preload(COMBAT_TEXTURES);
+  // 2. Preload Combat Sprites (Decoupled)
+  preloadPlayerAssets();
+  preloadEnemyAssets();
 
-  console.log('Assets preloading finished...');
+  // 3. Preload UI/Props (Optional, if you want to centralize Torch/Flasks)
+  useTexture.preload([
+    '/sprites/props/torch/torch_1.png',
+    '/sprites/props/torch/torch_2.png',
+    '/sprites/props/torch/torch_3.png',
+    '/sprites/props/torch/torch_4.png',
+    '/sprites/props/red_vial/potion_red_drop.png',
+    '/sprites/props/blue_vial/potion_blue_drop.png',
+    '/sprites/items/weapons/sword_rusty.png',
+  ]);
 };

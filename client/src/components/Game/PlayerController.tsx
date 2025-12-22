@@ -293,6 +293,11 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
       0.1
     );
 
+    if (state.camera instanceof THREE.PerspectiveCamera) {
+      state.camera.fov = THREE.MathUtils.lerp(state.camera.fov, 50, 0.1);
+      state.camera.updateProjectionMatrix();
+    }
+
     const lookTarget = groupRef.current.position.clone().add(new THREE.Vector3(0, 0, -1.0));
     state.camera.lookAt(lookTarget);
 

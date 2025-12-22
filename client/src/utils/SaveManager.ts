@@ -28,6 +28,8 @@ export const SaveManager = {
     const stats: PlayerStats = {
       ...INITIAL_STATS,
       ...classDef.baseStats,
+      classId: classId,
+      unlockedSkills: classDef.startingSkills,
       // Ensure Vitals match Max if not explicitly set
       hp: classDef.baseStats.maxHp || INITIAL_STATS.maxHp,
       mp: classDef.baseStats.maxMp || INITIAL_STATS.maxMp,
