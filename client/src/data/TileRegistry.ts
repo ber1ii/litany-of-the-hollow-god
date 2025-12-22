@@ -11,6 +11,7 @@ export interface TileDef {
   atlasPos: { col: number; row: number };
   size: { w: number; h: number }; // Size in "tiles"
   solid?: boolean;
+  itemId?: string;
 }
 
 export const TILE_REGISTRY: Record<number, TileDef> = {
@@ -37,7 +38,7 @@ export const TILE_REGISTRY: Record<number, TileDef> = {
     id: 4,
     name: 'gold',
     type: 'item',
-    atlasPos: { col: 0, row: 0 }, // Position doesn't matter for logic, just registry existence
+    atlasPos: { col: 0, row: 0 },
     size: { w: 1, h: 1 },
     solid: false,
   },
@@ -46,6 +47,42 @@ export const TILE_REGISTRY: Record<number, TileDef> = {
     name: 'skeleton',
     type: 'item',
     atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: false,
+  },
+  20: {
+    id: 20,
+    name: 'potion_red',
+    type: 'item',
+    atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: false,
+    itemId: 'potion_red',
+  },
+  21: {
+    id: 21,
+    name: 'potion_blue',
+    type: 'item',
+    atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: false,
+    itemId: 'potion_blue',
+  },
+  6: {
+    id: 6,
+    name: 'key_silver',
+    type: 'item',
+    atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: false,
+    itemId: 'silver_key',
+  },
+
+  9: {
+    id: 9,
+    name: 'bonfire',
+    type: 'prop',
+    atlasPos: { col: 46, row: 13 },
     size: { w: 1, h: 1 },
     solid: false,
   },
@@ -108,6 +145,33 @@ export const TILE_REGISTRY: Record<number, TileDef> = {
     size: { w: 2, h: 2 },
   },
 
+  // --- DOORS ---
+  30: {
+    id: 30,
+    name: 'door_closed',
+    type: 'wall',
+    atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: true,
+  },
+  31: {
+    id: 31,
+    name: 'door_open',
+    type: 'floor',
+    // FIX: Match standard floor (46, 13) instead of (0, 0)
+    atlasPos: { col: 46, row: 13 },
+    size: { w: 1, h: 1 },
+    solid: false,
+  },
+  32: {
+    id: 32,
+    name: 'door_locked_silver',
+    type: 'wall',
+    atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: true,
+  },
+
   // --- WALLS ---
   1: {
     id: 1,
@@ -117,7 +181,6 @@ export const TILE_REGISTRY: Record<number, TileDef> = {
     size: { w: 1, h: 5 },
     solid: true,
   },
-  // 1st Element: Huge building
   100: {
     id: 100,
     name: 'huge_building',
@@ -126,7 +189,6 @@ export const TILE_REGISTRY: Record<number, TileDef> = {
     size: { w: 18, h: 10 },
     solid: true,
   },
-  // 2nd Element: Long Wall 1
   51: {
     id: 51,
     name: 'long_wall_1',
@@ -135,7 +197,6 @@ export const TILE_REGISTRY: Record<number, TileDef> = {
     size: { w: 14, h: 5 },
     solid: true,
   },
-  // 11th Element: Double Archway
   53: {
     id: 53,
     name: 'double_archway',
@@ -144,7 +205,6 @@ export const TILE_REGISTRY: Record<number, TileDef> = {
     size: { w: 5, h: 11 },
     solid: true,
   },
-  // 12th Element: Single Archway
   55: {
     id: 55,
     name: 'single_archway',
@@ -153,7 +213,6 @@ export const TILE_REGISTRY: Record<number, TileDef> = {
     size: { w: 5, h: 6 },
     solid: true,
   },
-  // 19th Element: Basic Wall 1
   50: {
     id: 50,
     name: 'basic_wall_1',
@@ -162,7 +221,6 @@ export const TILE_REGISTRY: Record<number, TileDef> = {
     size: { w: 4, h: 3 },
     solid: true,
   },
-  // 34th Element: Dark Archway
   52: {
     id: 52,
     name: 'dark_archway',
@@ -171,7 +229,6 @@ export const TILE_REGISTRY: Record<number, TileDef> = {
     size: { w: 5, h: 6 },
     solid: true,
   },
-  // 16th Element: Wall with bars
   54: {
     id: 54,
     name: 'wall_bars',
@@ -180,7 +237,6 @@ export const TILE_REGISTRY: Record<number, TileDef> = {
     size: { w: 5, h: 3 },
     solid: true,
   },
-  // 5th Element: Wall Pillar 1
   60: {
     id: 60,
     name: 'wall_pillar_1',
@@ -188,6 +244,23 @@ export const TILE_REGISTRY: Record<number, TileDef> = {
     atlasPos: { col: 1, row: 21 },
     size: { w: 2, h: 5 },
     solid: true,
+  },
+  // Torch/Candle
+  7: {
+    id: 7,
+    name: 'torch_wall',
+    type: 'wall',
+    atlasPos: { col: 25, row: 7 }, // Generic wall background
+    size: { w: 1, h: 5 },
+    solid: true,
+  },
+  8: {
+    id: 8,
+    name: 'candle',
+    type: 'prop',
+    atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: false,
   },
 };
 

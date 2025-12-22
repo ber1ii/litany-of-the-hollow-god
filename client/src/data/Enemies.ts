@@ -9,6 +9,7 @@ export interface SpriteConfig {
 export interface EnemyDef {
   id: string;
   name: string;
+  tier: 'common' | 'elite' | 'boss';
   stats: {
     maxHp: number;
     attack: number;
@@ -27,6 +28,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
   SKELETON: {
     id: 'skeleton',
     name: 'Human Structure (Failed)',
+    tier: 'common',
     stats: {
       maxHp: 50,
       attack: 10,

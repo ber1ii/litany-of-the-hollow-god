@@ -8,20 +8,28 @@ import { Monster } from './Monster';
 import { getWallGroups } from '../../utils/WallGenerator';
 import { TILE_TYPES, TILE_SIZE } from './MapData';
 import { getTileDef, SHEET_CONFIG } from '../../data/TileRegistry';
-import { Key } from './Key';
 import type { TileDef } from '../../data/TileRegistry';
+import { Torch } from './Torch';
+import { Candle } from './Candle';
+import { Bonfire } from './Bonfire';
+import { LootDrop } from './LootDrop';
+import { ITEM_REGISTRY } from '../../data/ItemRegistry';
 
 // --- STATIC HELPERS ---
 
 const isStructure = (v: number) => {
-  // FIX: Explicitly exclude Items/Mobs.
-  // If these are missing from TileRegistry, getTileDef defaults to WALL_GENERIC (structure).
-  // This causes the wall builder to re-run (stutter) when picking them up.
-  if (v === TILE_TYPES.KEY_SILVER || v === TILE_TYPES.GOLD || v === TILE_TYPES.SKELETON) {
+  if (
+    v === TILE_TYPES.KEY_SILVER ||
+    v === TILE_TYPES.GOLD ||
+    v === TILE_TYPES.SKELETON ||
+    v === TILE_TYPES.POTION_RED ||
+    v === TILE_TYPES.POTION_BLUE ||
+    v === TILE_TYPES.BONFIRE
+  ) {
     return false;
   }
-
   const def = getTileDef(v);
+  if (def.type === 'item') return false;
   return (
     def &&
     (def.type === 'wall' ||
@@ -44,7 +52,6 @@ const isDoor = (v: number) => {
   );
 };
 
-// --- CUSTOM GEOMETRY GENERATOR ---
 const createSmartGeometry = (
   tileDef: TileDef,
   stretchLeft: number,
@@ -67,6 +74,7 @@ const createSmartGeometry = (
   if (indexAttribute) {
     const oldIndices = indexAttribute.array;
     const newIndices = [];
+
     if (!cullRight) {
       for (let i = 0; i < 6; i++) newIndices.push(oldIndices[i]);
     }
@@ -107,7 +115,6 @@ const createSmartGeometry = (
   return geometry;
 };
 
-// --- MEMOIZED WALL LAYER ---
 const StaticLevel = React.memo(
   ({
     map,
@@ -277,12 +284,11 @@ const StaticLevel = React.memo(
       </group>
     );
   },
-  // CUSTOM COMPARATOR: Optimizes performance
+  // CUSTOM COMPARATOR
   (prevProps, nextProps) => {
     if (prevProps.texture !== nextProps.texture || prevProps.playerPos !== nextProps.playerPos) {
       return false;
     }
-
     const h = prevProps.map.length;
     const w = prevProps.map[0].length;
 
@@ -290,20 +296,14 @@ const StaticLevel = React.memo(
       for (let x = 0; x < w; x++) {
         const prevId = prevProps.map[z][x];
         const nextId = nextProps.map[z][x];
-
         if (prevId !== nextId) {
-          // If we are just interacting with non-structural items (Gold, Keys, Mobs),
-          // we do NOT need to rebuild the wall geometry.
           if (!isStructure(prevId) && !isStructure(nextId)) continue;
-
-          // Door state changes are also safe (handled by separate Door component)
           if (isDoor(prevId) && isDoor(nextId)) continue;
-
-          return false; // Structure changed! Re-render.
+          return false;
         }
       }
     }
-    return true; // No structural changes.
+    return true;
   }
 );
 
@@ -323,7 +323,6 @@ export const LevelBuilder: React.FC<LevelBuilderProps> = ({
   deadEnemyIds,
 }) => {
   const rawAtlas = useTexture('/textures/sheets/mainlevbuild.png');
-
   const texture = useMemo(() => {
     const t = rawAtlas.clone();
     t.magFilter = THREE.NearestFilter;
@@ -361,6 +360,7 @@ export const LevelBuilder: React.FC<LevelBuilderProps> = ({
     const list: React.ReactElement[] = [];
     map.forEach((row, z) => {
       row.forEach((tile, x) => {
+        // --- 1. DOORS ---
         if (isDoor(tile)) {
           const isLocked = tile === TILE_TYPES.DOOR_LOCKED_SILVER;
           let rotationY = 0;
@@ -376,6 +376,8 @@ export const LevelBuilder: React.FC<LevelBuilderProps> = ({
             />
           );
         }
+
+        // --- 2. SPECIAL ITEMS (GOLD) ---
         if (tile === TILE_TYPES.GOLD) {
           list.push(
             <group key={`gold-${x}-${z}`} position={[0, 0.01, 0]}>
@@ -383,9 +385,8 @@ export const LevelBuilder: React.FC<LevelBuilderProps> = ({
             </group>
           );
         }
-        if (tile === TILE_TYPES.KEY_SILVER) {
-          list.push(<Key key={`key-${x}-${z}`} x={x} z={z} />);
-        }
+
+        // --- 3. ENEMIES ---
         if (tile === TILE_TYPES.SKELETON && !deadEnemyIds.has(`skeleton-${x}-${z}`)) {
           list.push(
             <group key={`mon-${x}-${z}`} position={[0, 0.01, 0]}>
@@ -400,6 +401,27 @@ export const LevelBuilder: React.FC<LevelBuilderProps> = ({
               />
             </group>
           );
+        }
+
+        // --- 4. PROPS ---
+        if (tile === TILE_TYPES.TORCH_WALL) {
+          list.push(<Torch key={`torch-${x}-${z}`} x={x} z={z} />);
+        }
+        if (tile === TILE_TYPES.CANDLE) {
+          list.push(<Candle key={`candle-${x}-${z}`} x={x} z={z} />);
+        }
+        // NEW: BONFIRE
+        if (tile === TILE_TYPES.BONFIRE) {
+          list.push(<Bonfire key={`bonfire-${x}-${z}`} x={x} z={z} />);
+        }
+
+        // --- 5. GENERIC ITEMS (REGISTRY) ---
+        const tileDef = getTileDef(tile);
+        if (tileDef.type === 'item' && tileDef.itemId) {
+          const itemData = ITEM_REGISTRY[tileDef.itemId];
+          if (itemData) {
+            list.push(<LootDrop key={`item-${x}-${z}`} x={x} z={z} item={itemData} />);
+          }
         }
       });
     });

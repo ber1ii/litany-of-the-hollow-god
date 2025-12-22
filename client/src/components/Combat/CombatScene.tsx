@@ -57,17 +57,21 @@ const HERO_URLS = {
   pray: '/sprites/combat/knight/Pray.png',
 };
 
-// --- Sub-Components ---
 const AnimatedTorch = ({ position }: { position: [number, number, number] }) => {
-  const textures = useTexture(TORCH_FRAMES);
+  const rawTextures = useTexture(TORCH_FRAMES);
 
-  useMemo(() => {
-    textures.forEach((t) => {
+  const textures = useMemo(() => {
+    const cloned = rawTextures.map((t) => t.clone());
+
+    cloned.forEach((t) => {
       t.magFilter = THREE.NearestFilter;
       t.minFilter = THREE.NearestFilter;
       t.colorSpace = THREE.SRGBColorSpace;
+      t.needsUpdate = true;
     });
-  }, [textures]);
+
+    return cloned;
+  }, [rawTextures]);
 
   const light = useRef<THREE.PointLight>(null);
   const [frameIndex, setFrameIndex] = useState(0);
@@ -86,14 +90,19 @@ const AnimatedTorch = ({ position }: { position: [number, number, number] }) => 
       <Billboard>
         <mesh>
           <planeGeometry args={[1, 1]} />
-          <meshBasicMaterial map={textures[frameIndex]} transparent alphaTest={0.5} fog={false} />
+          <meshBasicMaterial
+            map={textures[frameIndex]}
+            transparent
+            alphaTest={0.5}
+            fog={false}
+            toneMapped={false}
+          />
         </mesh>
       </Billboard>
       <pointLight ref={light} position={[0, 0, 0.2]} color="#ffaa00" distance={12} decay={2} />
     </group>
   );
 };
-
 // --- Main Component ---
 export const CombatScene: React.FC<CombatSceneProps> = ({
   initialStats,
@@ -142,6 +151,19 @@ export const CombatScene: React.FC<CombatSceneProps> = ({
     floor: theme.combatFloor,
   });
 
+  useEffect(() => {
+    // 1. Reset Position
+    camera.position.copy(originalCamPos.current);
+    camera.lookAt(0, 0.8, 0);
+
+    // 2. NEW FIX: Reset FOV back to normal (50)
+    if (camera instanceof THREE.PerspectiveCamera) {
+      // eslint-disable-next-line
+      camera.fov = 50;
+      camera.updateProjectionMatrix();
+    }
+  }, [camera]);
+
   useMemo(() => {
     [envTextures.wall, envTextures.floor].forEach((t) => {
       if (!t) return;
@@ -154,7 +176,7 @@ export const CombatScene: React.FC<CombatSceneProps> = ({
     });
   }, [envTextures]);
 
-  // --- 1. HANDLE ACTION REQUEST (Fixes setState in Effect error) ---
+  // --- 1. HANDLE ACTION REQUEST ---
   useEffect(() => {
     if (requestedAction && combatPhase === 'player_turn') {
       const skill = SKILL_DATABASE[requestedAction];

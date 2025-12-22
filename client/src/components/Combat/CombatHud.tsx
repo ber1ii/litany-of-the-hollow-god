@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { SKILL_DATABASE } from '../../data/Skills';
 import type { PlayerStats } from '../../types/GameTypes';
@@ -21,6 +21,14 @@ interface CombatHudProps {
   onLeave: (victory: boolean) => void;
 }
 
+interface CombatMenuOption {
+  label: string;
+  action: () => void;
+  disabled: boolean;
+  subtext?: string;
+  icon?: string;
+}
+
 export const CombatHud: React.FC<CombatHudProps> = ({
   combatState,
   menuState,
@@ -32,155 +40,297 @@ export const CombatHud: React.FC<CombatHudProps> = ({
   onAction,
   onLeave,
 }) => {
+  const [selectedIndex, setSelectedIndex] = useState(0);
+
+  const [prevCombatState, setPrevCombatState] = useState(combatState);
+  if (combatState !== prevCombatState) {
+    setPrevCombatState(combatState);
+    setSelectedIndex(0);
+  }
+
+  // --- 1. DEFINE MENU OPTIONS BASED ON STATE ---
+  const currentOptions = useMemo<CombatMenuOption[]>(() => {
+    // A. VICTORY / DEFEAT SCREENS
+    if (combatState === 'victory') {
+      return [{ label: 'Leave Area', action: () => onLeave(true), disabled: false }];
+    }
+    if (combatState === 'defeat') {
+      return [{ label: 'Accept Fate', action: () => onLeave(false), disabled: false }];
+    }
+
+    // B. PLAYER TURN MENUS
+    if (combatState === 'player_turn') {
+      if (menuState === 'main') {
+        return [
+          {
+            label: 'Attack',
+            action: () => {
+              setMenuState('attack_select');
+              setSelectedIndex(0);
+            },
+            disabled: false,
+          },
+          { label: 'Skills', action: () => {}, disabled: true, subtext: '(Empty)' },
+          { label: 'Inventory', action: () => {}, disabled: true, subtext: '(WIP)' },
+          { label: 'Flee', action: () => {}, disabled: true },
+        ];
+      } else if (menuState === 'attack_select') {
+        const skills = ['slash', 'heavy', 'pray'].map((skillId) => {
+          const skill = SKILL_DATABASE[skillId];
+          return {
+            label: skill.name,
+            action: () => onAction(skillId),
+            disabled: false,
+          };
+        });
+        return [
+          ...skills,
+          {
+            label: 'Back',
+            action: () => {
+              setMenuState('main');
+              setSelectedIndex(0);
+            },
+            disabled: false,
+            icon: '«',
+          },
+        ];
+      }
+    }
+
+    return [];
+  }, [combatState, menuState, setMenuState, onAction, onLeave]);
+
+  // --- 2. KEYBOARD HANDLING ---
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (combatState !== 'player_turn' && combatState !== 'victory' && combatState !== 'defeat')
+        return;
+
+      if (currentOptions.length === 0) return;
+
+      switch (e.key) {
+        case 'ArrowUp':
+        case 'w':
+        case 'W':
+          setSelectedIndex((prev) => (prev > 0 ? prev - 1 : currentOptions.length - 1));
+          break;
+        case 'ArrowDown':
+        case 's':
+        case 'S':
+          setSelectedIndex((prev) => (prev < currentOptions.length - 1 ? prev + 1 : 0));
+          break;
+        case 'Enter':
+        case ' ': {
+          const opt = currentOptions[selectedIndex];
+          if (!opt.disabled) {
+            opt.action();
+          }
+          break;
+        }
+        case 'Backspace':
+          if (menuState !== 'main' && combatState === 'player_turn') {
+            setMenuState('main');
+            setSelectedIndex(0);
+          }
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [currentOptions, selectedIndex, combatState, menuState, setMenuState]);
+
   return (
-    <div className="absolute inset-0 pointer-events-none font-pixel select-none z-50">
-      {/* 1. FLOATING ENEMY UI (Top Center) - Unchanged */}
-      <div className="absolute top-[10%] left-1/2 -translate-x-1/2 w-[200px] flex flex-col items-center">
-        <h2 className="text-white font-bold text-2xl mb-1 text-shadow-md whitespace-nowrap bg-black/50 px-2">
-          {enemyName.toUpperCase()}
+    <div className="absolute inset-0 pointer-events-none z-50">
+      {/* 1. FLOATING ENEMY UI (Top Center) */}
+      <div className="absolute top-[15%] left-1/2 -translate-x-1/2 w-[300px] flex flex-col items-center">
+        <h2 className="text-neutral-200 font-serif text-2xl mb-1 tracking-widest text-shadow-sm uppercase">
+          {enemyName}
         </h2>
-        <div className="w-full h-3 bg-black border-2 border-white relative">
+        {/* Enemy HP Bar */}
+        <div className="w-full h-3 bg-neutral-950 border border-neutral-700 relative">
           <motion.div
-            className="h-full bg-red-600"
+            className="h-full bg-red-900"
             initial={{ width: '100%' }}
             animate={{ width: `${(enemyHp / enemyMaxHp) * 100}%` }}
-            transition={{ duration: 0.2 }}
+            transition={{ duration: 0.3, ease: 'easeOut' }}
           />
+          <div className="absolute inset-0 border border-white/5" />
         </div>
       </div>
 
-      {/* 2. BOTTOM HUD */}
-      <div className="w-full h-full relative">
-        {/* CHANGES:
-            - right-0: Anchors to right edge
-            - md:w-[45vw]: Takes 45% of screen width on desktop (guarantees center is clear)
-            - max-w-2xl: Stops it from getting too huge on Ultrawide
-            - rounded-tl-3xl: Adds a nice curve to the top-left corner
-        */}
-        <div className="pointer-events-auto absolute bottom-0 right-0 w-full md:w-[45vw] max-w-2xl h-[250px] bg-[#111] border-t-4 border-l-4 border-r-0 border-b-0 border-gray-600 flex text-white shadow-2xl rounded-tl-3xl">
-          {/* LEFT: COMMANDS */}
-          <div className="w-[180px] border-r-4 border-gray-600 p-6 flex flex-col bg-[#1a1a1a] rounded-tl-[20px]">
-            {combatState === 'player_turn' ? (
-              <div className="flex flex-col gap-3 text-2xl">
-                {menuState === 'main' ? (
-                  <>
-                    <button
-                      onClick={() => setMenuState('attack_select')}
-                      className="text-left hover:text-yellow-400 hover:bg-white/10 px-2 py-1 rounded transition-colors"
-                    >
-                      Attack
-                    </button>
-                    <button className="text-left text-gray-500 cursor-not-allowed px-2 py-1">
-                      Skills
-                    </button>
-                    <button className="text-left hover:text-yellow-400 hover:bg-white/10 px-2 py-1 transition-colors rounded">
-                      Inventory
-                    </button>
-                    <button className="text-left text-gray-500 cursor-not-allowed px-2 py-1">
-                      Run
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    {menuState === 'attack_select' && (
-                      <div className="flex flex-col gap-2 text-2xl">
-                        {['slash', 'heavy', 'pray'].map((skillId) => {
-                          const skill = SKILL_DATABASE[skillId];
-                          return (
-                            <button
-                              key={skillId}
-                              onClick={() => onAction(skillId)}
-                              className={`text-left text-white hover:${skill.color.replace('text-', '')} hover:bg-white/10 px-2 py-1 rounded`}
-                            >
-                              ➢ {skill.name}
-                            </button>
-                          );
-                        })}
-                        <button
-                          onClick={() => setMenuState('main')}
-                          className="text-left text-gray-400 mt-2 hover:text-white px-2 py-1"
-                        >
-                          ➢ BACK
-                        </button>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-            ) : (
-              <div className="w-full h-full flex items-center justify-center text-center text-gray-500 animate-pulse text-2xl">
+      {/* 2. BOTTOM HUD CONTAINER */}
+      <div className="pointer-events-auto absolute bottom-0 right-0 w-full md:w-[50vw] max-w-3xl h-[240px] flex">
+        {/* --- LEFT PANEL: COMMANDS --- */}
+        <div className="w-[40%] bg-neutral-900/95 border-t-4 border-l-4 border-double border-neutral-700 p-4 flex flex-col shadow-2xl">
+          <div className="mb-2 border-b border-neutral-800 pb-1 flex justify-between items-end">
+            <span className="text-[10px] font-mono text-neutral-500 uppercase tracking-widest">
+              Command
+            </span>
+            {menuState !== 'main' && (
+              <span className="text-[10px] text-neutral-600 font-mono">[Backspace: Back]</span>
+            )}
+          </div>
+
+          {combatState === 'player_turn' ? (
+            <div
+              className="flex flex-col gap-0.5 h-full overflow-y-auto scrollbar-none [&::-webkit-scrollbar]:hidden"
+              style={{ scrollbarWidth: 'none' }}
+            >
+              {currentOptions.map((opt, idx) => (
+                <ActionButton
+                  key={idx}
+                  label={opt.label}
+                  subtext={opt.subtext || ''}
+                  disabled={opt.disabled}
+                  isSelected={idx === selectedIndex}
+                  icon={opt.icon}
+                  onClick={() => {
+                    setSelectedIndex(idx);
+                    if (!opt.disabled) opt.action();
+                  }}
+                  onHover={() => setSelectedIndex(idx)}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="w-full h-full flex items-center justify-center">
+              <span className="font-serif text-lg text-neutral-600 tracking-widest animate-pulse">
                 {combatState === 'victory'
                   ? 'VICTORY'
                   : combatState === 'defeat'
                     ? 'DEFEAT'
-                    : 'WAIT'}
-              </div>
-            )}
+                    : 'WAITING...'}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* --- RIGHT PANEL: STATS & RESULT ACTIONS --- */}
+        <div className="flex-1 bg-neutral-950/95 border-t-4 border-l border-double border-neutral-700 p-4 flex flex-col relative shadow-2xl">
+          <div className="flex w-full text-neutral-600 text-[10px] font-mono mb-4 pb-1 border-b border-neutral-800 uppercase tracking-widest">
+            <div className="w-1/3">Character</div>
+            <div className="w-1/3 text-right pr-4">Vitality</div>
+            <div className="w-1/3 text-right pr-4">Mind</div>
           </div>
 
-          {/* RIGHT: STATS */}
-          <div className="flex-1 p-6 bg-[#111] flex flex-col relative">
-            <div className="flex w-full text-gray-500 text-lg mb-2 pb-2 border-b border-gray-700 uppercase tracking-widest">
-              <div className="w-1/3">Name</div>
-              <div className="w-1/3">Body</div>
-              <div className="w-1/3">Mind</div>
+          {/* Player Row */}
+          <div className="flex w-full items-center relative group">
+            {/* Name */}
+            <div className="w-1/3 flex items-center gap-2">
+              {combatState === 'player_turn' && (
+                <div className="w-1.5 h-1.5 rotate-45 bg-amber-600 shadow-[0_0_8px_#d97706] animate-pulse" />
+              )}
+              <span className="text-xl font-serif text-neutral-300 group-hover:text-amber-100 transition-colors">
+                Knight
+              </span>
             </div>
 
-            {/* Player Row */}
-            <div className="flex w-full items-center text-2xl relative group mt-4">
-              <div className="w-1/3 flex items-center gap-3 overflow-hidden">
-                {combatState === 'player_turn' && (
-                  <div className="w-3 h-3 rounded-full bg-yellow-500 animate-pulse shadow-[0_0_8px_yellow] flex-shrink-0"></div>
-                )}
-                <span className="group-hover:text-yellow-200 transition-colors">Knight</span>
+            {/* HP Bar */}
+            <div className="w-1/3 pr-6">
+              <div className="w-full h-1.5 bg-neutral-900 border border-neutral-700 mb-1">
+                <motion.div
+                  className="h-full bg-red-800"
+                  animate={{ width: `${(playerStats.hp / playerStats.maxHp) * 100}%` }}
+                />
               </div>
-
-              {/* HP Bar */}
-              <div className="w-1/3 pr-8">
-                <div className="w-full h-6 bg-black border border-gray-600 relative shadow-inner">
-                  <motion.div
-                    className="h-full bg-red-600"
-                    animate={{ width: `${(playerStats.hp / playerStats.maxHp) * 100}%` }}
-                  />
-                </div>
-                <div className="text-right text-lg mt-1 text-gray-400">
-                  {Math.floor(playerStats.hp)}/{playerStats.maxHp}
-                </div>
-              </div>
-
-              {/* Mind Bar */}
-              <div className="w-1/3 pr-8">
-                <div className="w-full h-6 bg-black border border-gray-600 relative shadow-inner">
-                  <div className="h-full w-[80%] bg-blue-600"></div>
-                </div>
-                <div className="text-right text-lg mt-1 text-gray-400">80/100</div>
+              <div className="text-right font-mono text-[10px] text-neutral-500">
+                {Math.floor(playerStats.hp)} <span className="text-neutral-700">/</span>{' '}
+                {playerStats.maxHp}
               </div>
             </div>
 
-            {/* END BUTTONS */}
-            {(combatState === 'victory' || combatState === 'defeat') && (
-              <div className="absolute bottom-6 right-6 z-50">
-                {combatState === 'victory' && (
-                  <button
-                    onClick={() => onLeave(true)}
-                    className="bg-yellow-700 text-white px-6 py-3 text-xl border-2 border-yellow-500 hover:bg-yellow-600 shadow-lg font-bold uppercase transition-transform hover:scale-105"
-                  >
-                    Leave Area ➢
-                  </button>
-                )}
-                {combatState === 'defeat' && (
-                  <button
-                    onClick={() => onLeave(false)}
-                    className="bg-gray-800 text-white px-6 py-3 text-xl border-2 border-gray-500 hover:bg-gray-700 shadow-lg uppercase transition-transform hover:scale-105"
-                  >
-                    Accept Fate ➢
-                  </button>
-                )}
+            {/* Mind Bar (Updated to real stats) */}
+            <div className="w-1/3 pr-6">
+              <div className="w-full h-1.5 bg-neutral-900 border border-neutral-700 mb-1">
+                <motion.div
+                  className="h-full bg-blue-900/60"
+                  animate={{ width: `${(playerStats.mp / playerStats.maxMp) * 100}%` }}
+                />
               </div>
-            )}
+              <div className="text-right font-mono text-[10px] text-neutral-500">
+                {Math.floor(playerStats.mp)} <span className="text-neutral-700">/</span>{' '}
+                {playerStats.maxMp}
+              </div>
+            </div>
           </div>
+
+          {/* VICTORY / DEFEAT ACTIONS */}
+          {(combatState === 'victory' || combatState === 'defeat') && (
+            <div className="absolute bottom-4 right-4 z-50 flex gap-4">
+              {currentOptions.map((opt, idx) => (
+                <button
+                  key={idx}
+                  onClick={opt.action}
+                  onMouseEnter={() => setSelectedIndex(idx)}
+                  className={`
+                    px-6 py-2 border font-serif tracking-widest uppercase transition-all shadow-lg text-sm
+                    ${
+                      idx === selectedIndex
+                        ? 'bg-amber-900/40 border-amber-500 text-amber-100 scale-105'
+                        : 'bg-neutral-800 border-neutral-600 text-neutral-400 hover:border-neutral-500'
+                    }
+                  `}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 };
+
+const ActionButton = ({
+  label,
+  onClick,
+  onHover,
+  disabled = false,
+  isSelected = false,
+  icon = '◈',
+  subtext,
+}: {
+  label: string;
+  onClick?: () => void;
+  onHover?: () => void;
+  disabled?: boolean;
+  isSelected?: boolean;
+  icon?: string;
+  subtext?: string;
+}) => (
+  <button
+    onClick={disabled ? undefined : onClick}
+    onMouseEnter={disabled ? undefined : onHover}
+    disabled={disabled}
+    className={`
+      group relative w-full text-left px-3 py-2 border border-transparent
+      transition-all duration-75
+      ${
+        disabled
+          ? 'opacity-40 cursor-not-allowed'
+          : isSelected
+            ? 'bg-neutral-800/80 border-neutral-700 text-amber-50'
+            : 'hover:bg-neutral-800 hover:border-neutral-700 cursor-pointer text-neutral-400'
+      }
+    `}
+  >
+    {!disabled && (
+      <span
+        className={`absolute left-1.5 top-1/2 -translate-y-1/2 text-amber-700 transition-opacity text-xs ${
+          isSelected ? 'opacity-100' : 'opacity-0'
+        }`}
+      >
+        {icon}
+      </span>
+    )}
+
+    <div className="flex justify-between items-baseline pl-4">
+      <span className="font-serif text-sm tracking-wide uppercase">{label}</span>
+
+      {subtext && <span className="font-mono text-[10px] text-neutral-600">{subtext}</span>}
+    </div>
+  </button>
+);

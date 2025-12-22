@@ -21,6 +21,14 @@ export const TILE_TYPES = {
   ARCH_DOUBLE: 53,
   WALL_BARS: 54,
   HUGE_BUILDING: 100,
+
+  TORCH_WALL: 7,
+  CANDLE: 8,
+  BONFIRE: 9,
+
+  // NEW ITEMS (Kept here for ID reference, but not placed in map)
+  POTION_RED: 20,
+  POTION_BLUE: 21,
 };
 
 const MAP_WIDTH = 30;
@@ -36,40 +44,44 @@ const map = [...EMPTY_MAP];
 
 // Outer Perimeter
 for (let x = 0; x < MAP_WIDTH; x++) {
-  map[0][x] = 1; // Top
-  map[MAP_HEIGHT - 1][x] = 1; // Bottom
+  map[0][x] = 1;
+  map[MAP_HEIGHT - 1][x] = 1;
 }
 for (let z = 0; z < MAP_HEIGHT; z++) {
-  map[z][0] = 1; // Left
-  map[z][MAP_WIDTH - 1] = 1; // Right
+  map[z][0] = 1;
+  map[z][MAP_WIDTH - 1] = 1;
 }
 
-// Horizontal Split (Separates Hallway from Bottom Rooms)
+// Horizontal Split
 for (let x = 1; x < MAP_WIDTH - 1; x++) {
   map[12][x] = 1;
 }
 
-// Vertical Split (Separates Bottom Left from Bottom Right)
+// Vertical Split
 for (let z = 12; z < MAP_HEIGHT - 1; z++) {
   map[z][14] = 1;
 }
 
 // --- 2. OPENINGS & DOORS ---
-
-// Archway between Bottom Rooms (Gap in Vertical Split)
 map[22][14] = TILE_TYPES.DOOR_CLOSED;
-
-// Locked Door to Hallway (In Horizontal Split)
 map[12][22] = TILE_TYPES.DOOR_LOCKED_SILVER;
 
 // --- 3. ITEMS & ENEMIES ---
 
 // Room 1 (Bottom Left): Gold
 map[25][5] = TILE_TYPES.GOLD;
+// Removed Potion Pickups
 
 // Room 2 (Bottom Right): Skeleton & Key
 map[22][19] = TILE_TYPES.SKELETON;
 map[22][26] = TILE_TYPES.KEY_SILVER;
+
+// Props
+map[23][4] = TILE_TYPES.TORCH_WALL;
+map[23][6] = TILE_TYPES.CANDLE;
+
+// --- 4. BONFIRE (Top Left Area) ---
+map[5][5] = TILE_TYPES.BONFIRE;
 
 export const LEVEL_1_MAP = map;
 
@@ -81,17 +93,10 @@ export const generateCollisionGrid = (mapData: number[][]) => {
       const id = mapData[z][x];
       if (id === 0) continue;
 
-      // EXPLICIT PASS: Ensure we can always walk on Items and Open Doors
-      if (
-        id === TILE_TYPES.KEY_SILVER ||
-        id === TILE_TYPES.GOLD ||
-        id === TILE_TYPES.SKELETON ||
-        id === TILE_TYPES.DOOR_OPEN
-      ) {
-        continue; // Do not mark as solid
-      }
-
       const def = getTileDef(id);
+
+      if (def.solid === false) continue;
+
       if (def && def.solid) {
         for (let w = 0; w < def.size.w; w++) {
           if (x + w < mapData[0].length) {

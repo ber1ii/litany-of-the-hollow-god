@@ -43,6 +43,8 @@ export const SmartWall: React.FC<SmartWallProps> = ({
 
   const baseGeometry = useMemo(() => geometry.clone(), [geometry]);
 
+  const isVertical = Math.abs(rotation[1]) > 0.1;
+
   useFrame(() => {
     if (!groupRef.current || !playerPos.current) return;
 
@@ -51,22 +53,25 @@ export const SmartWall: React.FC<SmartWallProps> = ({
       return;
     }
 
+    // Refresh bounding box in world space
     if (!geometry.boundingBox) geometry.computeBoundingBox();
     box.copy(geometry.boundingBox!);
     box.applyMatrix4(groupRef.current.matrixWorld);
 
     const pPos = playerPos.current;
-
     let shouldFade = false;
 
-    // --- STRICT OCCLUSION LOGIC ---
-    // This allows the player to "hug" the wall (get very close) without the wall
-    // popping back to solid opacity.
-    // Side walls (at pPos.z) are still excluded because 0 > 0.05 is false.
-    const isSouthOfPlayer = box.min.z > pPos.z + 0.05;
+    // --- SMART LOGIC ---
+    // 1. Is the wall physically closer to the camera than the player?
+    //    (i.e., is it "South" / +Z of the player?)
+    const isSouthOfPlayer = box.min.z > pPos.z - 0.2; // Small buffer
 
     if (isSouthOfPlayer) {
-      const margin = 1.2;
+      // 2. DYNAMIC MARGIN BASED ON WALL TYPE
+      // Vertical walls (Side walls) get a tiny margin so they don't fade when we hug them.
+      // Horizontal walls (Blocking walls) get a huge margin so they fade out of the way.
+      const margin = isVertical ? 0.2 : 1.2;
+
       const withinXBounds = pPos.x > box.min.x - margin && pPos.x < box.max.x + margin;
 
       if (withinXBounds) {
@@ -75,7 +80,7 @@ export const SmartWall: React.FC<SmartWallProps> = ({
     }
 
     // Smooth Fade
-    const targetOpacity = shouldFade ? 0.2 : 1;
+    const targetOpacity = shouldFade ? 0.15 : 1;
     const newOpacity = THREE.MathUtils.lerp(opacity, targetOpacity, 0.1);
 
     if (Math.abs(newOpacity - opacity) > 0.01) {

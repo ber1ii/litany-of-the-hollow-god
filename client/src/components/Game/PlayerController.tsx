@@ -11,6 +11,8 @@ interface PlayerControllerProps {
   onInteract: (x: number, z: number) => void;
   onStep: (x: number, z: number) => void;
   playerRef: React.RefObject<THREE.Vector3>;
+  playerRotRef: React.MutableRefObject<number>;
+  active?: boolean;
 }
 
 export const PlayerController: React.FC<PlayerControllerProps> = ({
@@ -18,6 +20,8 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
   onInteract,
   onStep,
   playerRef,
+  playerRotRef,
+  active = true,
 }) => {
   const input = useKeyboard();
   const groupRef = useRef<THREE.Group>(null);
@@ -37,13 +41,34 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
   const WALL_THICKNESS = 0.25;
 
   const checkCollision = (nextX: number, nextZ: number) => {
+    if (!groupRef.current) return true;
+
+    // Get current Grid Position to prevent getting stuck INSIDE a door/wall
+    const currentX = groupRef.current.position.x;
+    const currentZ = groupRef.current.position.z;
+    const currGridX = Math.round(currentX / TILE_SIZE);
+    const currGridZ = Math.round(currentZ / TILE_SIZE);
+
     const gridX = Math.round(nextX / TILE_SIZE);
     const gridZ = Math.round(nextZ / TILE_SIZE);
 
     if (gridZ < 0 || gridZ >= map.length || gridX < 0 || gridX >= map[0].length) return true;
 
+    // --- CRITICAL FIX ---
+    // Only bypass collision check if we are trapped inside a DOOR.
+    // Previously this allowed walking through ALL walls if you managed to clip into their tile.
+    const currentTileId = map[currGridZ]?.[currGridX];
+    const isTrappedInDoor =
+      currentTileId === TILE_TYPES.DOOR_CLOSED || currentTileId === TILE_TYPES.DOOR_LOCKED_SILVER;
+
+    if (currGridX === gridX && currGridZ === gridZ && isTrappedInDoor) {
+      return false;
+    }
+    // --------------------
+
     const tileType = map[gridZ][gridX];
 
+    // Door specific collision (Closed or Locked)
     if (tileType === TILE_TYPES.DOOR_CLOSED || tileType === TILE_TYPES.DOOR_LOCKED_SILVER) {
       const dx = nextX - gridX * TILE_SIZE;
       const dz = nextZ - gridZ * TILE_SIZE;
@@ -59,7 +84,6 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
       for (let x = minGX; x <= maxGX; x++) {
         if (collisionGrid[z][x]) {
           const id = map[z][x];
-
           let halfW = TILE_SIZE / 2;
           let halfD = TILE_SIZE / 2;
 
@@ -123,6 +147,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
     obj.position.set(0, 0, 5);
     return obj;
   }, []);
+
   const [animation, setAnimation] = useState<'idle' | 'walk'>('idle');
   const [direction, setDirection] = useState('S');
   const currentAim = useRef(new THREE.Vector3(0, 0, 5));
@@ -146,6 +171,11 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
 
     playerRef.current.copy(groupRef.current.position);
 
+    if (!active) {
+      setAnimation('idle');
+      return;
+    }
+
     if (!lightTarget.parent) groupRef.current.add(lightTarget);
 
     if (input.interact && !prevInteract.current) {
@@ -168,12 +198,16 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
       for (const c of candidates) {
         if (c.z >= 0 && c.z < map.length && c.x >= 0 && c.x < map[0].length) {
           const id = map[c.z][c.x];
+          const def = getTileDef(id);
+
           if (
+            (def.type === 'item' && def.itemId) ||
             id === TILE_TYPES.KEY_SILVER ||
             id === TILE_TYPES.GOLD ||
             id === TILE_TYPES.DOOR_CLOSED ||
             id === TILE_TYPES.DOOR_OPEN ||
-            id === TILE_TYPES.DOOR_LOCKED_SILVER
+            id === TILE_TYPES.DOOR_LOCKED_SILVER ||
+            id === TILE_TYPES.BONFIRE
           ) {
             onInteract(c.x, c.z);
             break;
@@ -221,6 +255,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
 
     let targetX = currentAim.current.x;
     let targetZ = currentAim.current.z;
+
     if (isAiming) {
       targetX = aimX * 1.5;
       targetZ = aimZ * 1.5;
@@ -228,12 +263,16 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
       targetX = moveX * 1.5;
       targetZ = moveZ * 1.5;
     }
+
     currentAim.current.x = THREE.MathUtils.lerp(currentAim.current.x, targetX, 0.1);
     currentAim.current.z = THREE.MathUtils.lerp(currentAim.current.z, targetZ, 0.1);
+
     lightTarget.position.set(currentAim.current.x, 0, currentAim.current.z);
 
     const lookAngle = Math.atan2(currentAim.current.z, currentAim.current.x);
     setDirection(getDirectionFromAngle(lookAngle));
+
+    playerRotRef.current = lookAngle;
 
     const CAM_OFFSET_Y = 3;
     const CAM_OFFSET_Z = 2.5;
