@@ -29,9 +29,86 @@ export interface PlayerStats {
   // Flasks (Estus System)
   flaskCharges: number;
   maxFlaskCharges: number;
+
+  // Active Effects (Buffs/Debuffs)
+  statusEffects: StatusEffect[];
 }
 
 export type InventoryItem = ItemDef & { count: number };
+
+export type StatusEffectType =
+  | 'bleed'
+  | 'poison'
+  | 'stun'
+  | 'weakness'
+  | 'vulnerable'
+  | 'buff_damage';
+
+export interface StatusEffect {
+  id: string;
+  type: StatusEffectType;
+  name: string;
+  duration: number;
+  value: number;
+  icon?: string;
+}
+
+export interface BodyPart {
+  id: string;
+  name: string;
+  hp: number;
+  maxHp: number;
+  isSevered: boolean;
+  isVital: boolean;
+
+  // Stats
+  hitChanceMod: number; // e.g. -20 for head (harder to hit)
+  damageMultiplier: number;
+}
+
+export interface SpriteConfig {
+  textureUrl: string;
+  frames: number;
+  columns: number;
+  rows: number;
+  frameDuration?: number;
+}
+
+export interface EnemyDef {
+  id: string;
+  name: string;
+  tier: 'common' | 'elite' | 'boss';
+  parts: BodyPart[]; // The template for this enemy's body
+  baseStats: {
+    attack: number;
+    defense: number;
+    speed: number;
+    maxHp: number; // Main HP Pool
+  };
+  scale: number;
+  sprites: {
+    idle: SpriteConfig;
+    attack: SpriteConfig;
+    hurt: SpriteConfig;
+    death: SpriteConfig;
+  };
+  drops: string[];
+  aiBehavior: 'aggressive' | 'defensive' | 'erratic';
+}
+
+// The active instance in combat
+export interface CombatEnemyInstance {
+  instanceId: string;
+  defId: string;
+  name: string;
+  hp: number;
+  maxHp: number;
+  parts: BodyPart[];
+  statusEffects: StatusEffect[];
+
+  attackDebuff: number;
+  damageTakenMultiplier: number;
+}
 
 export const INITIAL_STATS: PlayerStats = {
   // Vitals
@@ -62,4 +139,7 @@ export const INITIAL_STATS: PlayerStats = {
   // Estus
   flaskCharges: 3,
   maxFlaskCharges: 3,
+
+  // Effects
+  statusEffects: [],
 };

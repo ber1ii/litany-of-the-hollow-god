@@ -8,7 +8,7 @@ import { TILE_TYPES } from './MapData';
 import { CombatScene } from '../Combat/CombatScene';
 import { CombatHud } from '../Combat/CombatHud';
 import { INITIAL_STATS } from '../../types/GameTypes';
-import type { PlayerStats, InventoryItem } from '../../types/GameTypes';
+import type { PlayerStats, InventoryItem, CombatEnemyInstance } from '../../types/GameTypes';
 import { ENEMIES } from '../../data/Enemies';
 import { Minimap } from './Minimap';
 import { CombatTransitionCamera } from './CombatTransitionCamera';
@@ -50,19 +50,15 @@ interface GameProps {
 
 export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
   // --- INITIALIZATION ---
-
-  // 1. Level ID
   // eslint-disable-next-line
   const [currentLevelId, setCurrentLevelId] = useState(
     initialSaveData ? initialSaveData.currentLevelId : INITIAL_LEVEL_ID
   );
 
-  // 2. World State (Ref)
   const levelChanges = useRef<Map<string, Map<string, number>>>(
     initialSaveData ? SaveManager.deserializeLevelChanges(initialSaveData.levelChanges) : new Map()
   );
 
-  // 3. Map Data
   const [mapData, setMapData] = useState(() => {
     const baseMap = LEVEL_REGISTRY[currentLevelId] || LEVEL_REGISTRY['LEVEL_1'];
     const activeMap = baseMap.map((row) => [...row]);
@@ -81,17 +77,23 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
     return activeMap;
   });
 
-  // 4. Player Stats
-  const [stats, setStats] = useState<PlayerStats>(
-    initialSaveData ? initialSaveData.stats : INITIAL_STATS
-  );
+  // FIX: Safe Stats Loading
+  // This ensures 'statusEffects' and other new fields exist even if the save file is old.
+  const [stats, setStats] = useState<PlayerStats>(() => {
+    if (initialSaveData) {
+      return {
+        ...INITIAL_STATS,
+        ...initialSaveData.stats,
+        statusEffects: initialSaveData.stats.statusEffects || [],
+      };
+    }
+    return INITIAL_STATS;
+  });
 
-  // 5. Enemy State
   const [deadEnemyIds, setDeadEnemyIds] = useState<Set<string>>(
     initialSaveData ? new Set(initialSaveData.deadEnemyIds) : new Set()
   );
 
-  // 6. Player Position
   const playerPosRef = useRef(
     initialSaveData
       ? new THREE.Vector3(
@@ -104,7 +106,6 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
 
   const playerRotationRef = useRef(initialSaveData ? initialSaveData.playerRotation : 0);
 
-  // 7. Inventory
   const [inventory, setInventory] = useState<InventoryItem[]>(
     initialSaveData
       ? initialSaveData.inventory
@@ -120,6 +121,7 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
   >('roam');
 
   const [currentEnemyId, setCurrentEnemyId] = useState<string>('SKELETON');
+  const [combatEnemy, setCombatEnemy] = useState<CombatEnemyInstance | null>(null);
 
   const combatCooldown = useRef(false);
   const currentThemeId = 'DUNGEON';
@@ -133,6 +135,10 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
   const [isLevelUpOpen, setLevelUpOpen] = useState(false);
 
   const [isSaving, setIsSaving] = useState(false);
+
+  const [menuState, setMenuState] = useState<
+    'main' | 'attack_select' | 'items' | 'move_select' | 'skill_select'
+  >('main');
 
   const addNotification = (msg: string) => {
     setNotifications((prev) => [...prev.slice(-4), msg]);
@@ -151,7 +157,6 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
     levelChanges.current.get(currentLevelId)?.set(`${x},${z}`, newTileId);
   };
 
-  // --- BONFIRE / RESTING MECHANICS ---
   const handleRest = async (statsOverride?: PlayerStats) => {
     setBonfireMenuOpen(false);
     setGameState('resting');
@@ -236,8 +241,6 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
   const [combatPhase, setCombatPhase] = useState<
     'player_turn' | 'player_acting' | 'enemy_turn' | 'enemy_acting' | 'victory' | 'defeat'
   >('player_turn');
-  const [menuState, setMenuState] = useState<'main' | 'attack_select' | 'items'>('main');
-  const [enemyHp, setEnemyHp] = useState(50);
   const [requestedAction, setRequestedAction] = useState<string | null>(null);
   const [transitionTarget, setTransitionTarget] = useState<{ x: number; z: number } | null>(null);
 
@@ -367,8 +370,8 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
       setTransitionTarget(enemyPos);
     }
 
-    const baseId = enemyId.split('-')[0].toUpperCase();
     setCurrentEnemyId(enemyId);
+    setCombatEnemy(null);
 
     setGameState('combat_transition');
 
@@ -376,7 +379,6 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
       setGameState('combat');
       setCombatPhase('player_turn');
       setMenuState('main');
-      setEnemyHp(ENEMIES[baseId]?.stats.maxHp || 50);
       setRequestedAction(null);
     }, 1500);
   };
@@ -457,7 +459,6 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
         />
       )}
 
-      {/* Saving Indicator */}
       {isSaving && (
         <div className="absolute top-5 right-5 text-neutral-500 font-mono text-xs animate-pulse z-[200]">
           SAVING...
@@ -515,9 +516,7 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
           menuState={menuState}
           setMenuState={setMenuState}
           playerStats={stats}
-          enemyHp={enemyHp}
-          enemyMaxHp={ENEMIES[currentEnemyId.split('-')[0].toUpperCase()]?.stats.maxHp || 50}
-          enemyName={ENEMIES[currentEnemyId.split('-')[0].toUpperCase()]?.name || 'Enemy'}
+          enemyInstance={combatEnemy}
           onAction={handlePlayerAction}
           onLeave={(victory) => endCombat({ victory, hpRemaining: stats.hp })}
         />
@@ -573,16 +572,16 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
           </>
         ) : gameState === 'combat' ? (
           <CombatScene
+            key={currentEnemyId} // FIX: Force Remount on new enemy
             enemyId={currentEnemyId}
             themeId={currentThemeId}
             initialStats={stats}
             combatPhase={combatPhase}
             setCombatPhase={setCombatPhase}
-            enemyHp={enemyHp}
-            setEnemyHp={setEnemyHp}
+            onEnemyUpdate={setCombatEnemy}
             requestedAction={requestedAction}
             setRequestedAction={setRequestedAction}
-            updatePlayerHp={(newHp) => setStats((s) => ({ ...s, hp: newHp }))}
+            updatePlayerStats={setStats}
           />
         ) : null}
       </Canvas>
