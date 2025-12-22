@@ -316,7 +316,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
       <spotLight
         position={[0, 1.2, 0.1]}
         target={lightTarget}
-        intensity={15}
+        intensity={20}
         angle={0.6}
         penumbra={0.5}
         distance={15}

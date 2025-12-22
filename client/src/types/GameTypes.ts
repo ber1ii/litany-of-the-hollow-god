@@ -38,6 +38,10 @@ export interface PlayerStats {
 
   // Skills
   unlockedSkills: string[];
+  equippedSkills: string[];
+
+  // Talismans
+  equippedTalismans: string[];
 }
 
 export type InventoryItem = ItemDef & { count: number };
@@ -152,4 +156,6 @@ export const INITIAL_STATS: PlayerStats = {
 
   // Skills
   unlockedSkills: [],
+  equippedSkills: [],
+  equippedTalismans: [],
 };

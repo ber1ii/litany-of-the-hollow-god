@@ -6,6 +6,7 @@ interface BonfireMenuProps {
   onRest: () => void;
   onLevelUp: () => void;
   onSkillTree: () => void;
+  onManageEquipment: () => void;
 }
 
 export const BonfireMenu: React.FC<BonfireMenuProps> = ({
@@ -14,16 +15,18 @@ export const BonfireMenu: React.FC<BonfireMenuProps> = ({
   onRest,
   onLevelUp,
   onSkillTree,
+  onManageEquipment,
 }) => {
   const menuOptions = useMemo(
     () => [
       { label: 'Level Up', action: onLevelUp },
       { label: 'Learn Skills', action: onSkillTree },
       { label: 'Rest', action: onRest },
+      { label: 'Prepare', action: onManageEquipment },
       { label: 'Quit to Title', action: onQuit },
       { label: 'Leave Bonfire', action: onClose },
     ],
-    [onClose, onQuit, onRest, onLevelUp, onSkillTree]
+    [onClose, onQuit, onRest, onLevelUp, onSkillTree, onManageEquipment]
   );
 
   const [selectedIndex, setSelectedIndex] = useState(0);

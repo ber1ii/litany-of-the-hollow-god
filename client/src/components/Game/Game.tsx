@@ -21,8 +21,9 @@ import { LEVEL_REGISTRY, INITIAL_LEVEL_ID } from '../../data/LevelRegistry';
 import { SaveManager } from '../../utils/SaveManager';
 import type { SaveData } from '../../utils/SaveManager';
 import { SkillTree } from '../UI/SkillTree';
+import { EquipmentMenu } from '../UI/EquipmentMenu';
 
-const FOG_COLOR = '#080810';
+const FOG_COLOR = '#040408';
 
 const AbyssPlane = () => (
   <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.5, 0]} receiveShadow>
@@ -135,6 +136,7 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
   const [isBonfireMenuOpen, setBonfireMenuOpen] = useState(false);
   const [isLevelUpOpen, setLevelUpOpen] = useState(false);
   const [isSkillTreeOpen, setSkillTreeOpen] = useState(false);
+  const [isEquipmentMenuOpen, setEquipmentMenuOpen] = useState(false);
 
   const [isSaving, setIsSaving] = useState(false);
 
@@ -164,6 +166,13 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
       ...prev,
       xp: prev.xp - cost,
       unlockedSkills: [...prev.unlockedSkills, skillId],
+    }));
+  };
+
+  const handleEquipSkills = (newSkills: string[]) => {
+    setStats((prev) => ({
+      ...prev,
+      equippedSkills: newSkills,
     }));
   };
 
@@ -254,22 +263,35 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
   const [requestedAction, setRequestedAction] = useState<string | null>(null);
   const [transitionTarget, setTransitionTarget] = useState<{ x: number; z: number } | null>(null);
 
+  const isDeepMenuOpen =
+    isBonfireMenuOpen || isLevelUpOpen || isSkillTreeOpen || isEquipmentMenuOpen;
+
   useEffect(() => {
     const handleGlobalKey = (e: KeyboardEvent) => {
       if (e.key === 'Tab') {
         e.preventDefault();
-        if (gameState === 'roam' && !isBonfireMenuOpen && !isLevelUpOpen) {
+        if (gameState === 'roam' && !isDeepMenuOpen) {
           setInventoryOpen((prev) => !prev);
         }
       }
       if (e.key === 'Escape') {
         if (isLevelUpOpen) setLevelUpOpen(false);
         else if (isBonfireMenuOpen) setBonfireMenuOpen(false);
+        else if (isSkillTreeOpen) setSkillTreeOpen(false);
+        else if (isEquipmentMenuOpen) setEquipmentMenuOpen(false);
       }
     };
     window.addEventListener('keydown', handleGlobalKey);
     return () => window.removeEventListener('keydown', handleGlobalKey);
-  }, [gameState, isInventoryOpen, isBonfireMenuOpen, isLevelUpOpen]);
+  }, [
+    gameState,
+    isInventoryOpen,
+    isDeepMenuOpen,
+    isLevelUpOpen,
+    isBonfireMenuOpen,
+    isSkillTreeOpen,
+    isEquipmentMenuOpen,
+  ]);
 
   const handleUseItem = (item: InventoryItem) => {
     if (item.type === 'consumable' || item.type === 'flask') {
@@ -455,6 +477,19 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
             setBonfireMenuOpen(false);
             setSkillTreeOpen(true);
           }}
+          onManageEquipment={() => {
+            setBonfireMenuOpen(false);
+            setEquipmentMenuOpen(true);
+          }}
+        />
+      )}
+
+      {isEquipmentMenuOpen && (
+        <EquipmentMenu
+          stats={stats}
+          inventory={inventory}
+          onClose={() => setEquipmentMenuOpen(false)}
+          onEquipSkill={handleEquipSkills}
         />
       )}
 
@@ -584,9 +619,7 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
               onStep={handleStep}
               playerRef={playerPosRef}
               playerRotRef={playerRotationRef}
-              active={
-                gameState === 'roam' && !isInventoryOpen && !isBonfireMenuOpen && !isLevelUpOpen
-              }
+              active={gameState === 'roam' && !isInventoryOpen && !isDeepMenuOpen}
             />
 
             {gameState === 'combat_transition' && transitionTarget && (
