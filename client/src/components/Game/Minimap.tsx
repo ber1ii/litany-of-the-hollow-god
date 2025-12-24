@@ -303,7 +303,12 @@ export const Minimap: React.FC<MinimapProps> = ({
           zIndex: 10,
         }}
       />
-      <canvas ref={canvasRef} width={200} height={200} style={{ display: 'block' }} />
+      <canvas
+        ref={canvasRef}
+        width={CANVAS_SIZE}
+        height={CANVAS_SIZE}
+        style={{ width: '100%', height: '100%' }}
+      />
 
       <div style={{ ...labelStyle, bottom: '5px', left: '50%', transform: 'translateX(-50%)' }}>
         S

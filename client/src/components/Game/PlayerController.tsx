@@ -277,24 +277,26 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
     const CAM_OFFSET_Y = 3;
     const CAM_OFFSET_Z = 2.5;
 
+    const dampFactor = 1 - Math.exp(-6 * delta);
+
     state.camera.position.x = THREE.MathUtils.lerp(
       state.camera.position.x,
       groupRef.current.position.x,
-      0.1
+      dampFactor
     );
     state.camera.position.y = THREE.MathUtils.lerp(
       state.camera.position.y,
       groupRef.current.position.y + CAM_OFFSET_Y,
-      0.1
+      dampFactor
     );
     state.camera.position.z = THREE.MathUtils.lerp(
       state.camera.position.z,
       groupRef.current.position.z + CAM_OFFSET_Z,
-      0.1
+      dampFactor
     );
 
     if (state.camera instanceof THREE.PerspectiveCamera) {
-      state.camera.fov = THREE.MathUtils.lerp(state.camera.fov, 50, 0.1);
+      state.camera.fov = THREE.MathUtils.lerp(state.camera.fov, 50, dampFactor);
       state.camera.updateProjectionMatrix();
     }
 
@@ -321,7 +323,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         penumbra={0.5}
         distance={15}
         castShadow
-        shadow-mapSize={[1024, 1024]}
+        shadow-mapSize={[256, 256]}
         shadow-normalBias={0.05}
         color="#fffbd6"
       />

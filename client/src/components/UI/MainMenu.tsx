@@ -16,7 +16,6 @@ export const MainMenu: React.FC<MainMenuProps> = ({
   onLorefinder,
   onOptions,
 }) => {
-  // FIX: Initialize state once. No need for useEffect to "re-check" immediately on mount.
   const [hasSave] = useState(() => {
     const exists = SaveManager.hasSave();
     console.log('MainMenu mounted. Save file exists:', exists);

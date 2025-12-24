@@ -22,6 +22,8 @@ import { SaveManager } from '../../utils/SaveManager';
 import type { SaveData } from '../../utils/SaveManager';
 import { SkillTree } from '../UI/SkillTree';
 import { EquipmentMenu } from '../UI/EquipmentMenu';
+import { SanityEffects } from '../Effects/SanityEffects';
+import { HUD } from '../UI/HUD';
 
 const FOG_COLOR = '#040408';
 
@@ -80,7 +82,6 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
   });
 
   // FIX: Safe Stats Loading
-  // This ensures 'statusEffects' and other new fields exist even if the save file is old.
   const [stats, setStats] = useState<PlayerStats>(() => {
     if (initialSaveData) {
       return {
@@ -91,6 +92,9 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
     }
     return INITIAL_STATS;
   });
+
+  // REMOVED: sanityRef, maxSanityRef, and their useEffect.
+  // We now pass stats.sanity directly to the component.
 
   const [deadEnemyIds, setDeadEnemyIds] = useState<Set<string>>(
     initialSaveData ? new Set(initialSaveData.deadEnemyIds) : new Set()
@@ -280,6 +284,22 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
         else if (isSkillTreeOpen) setSkillTreeOpen(false);
         else if (isEquipmentMenuOpen) setEquipmentMenuOpen(false);
       }
+      if (e.key === 'p') {
+        // DEBUG: Damage sanity
+        setStats((prev) => ({
+          ...prev,
+          sanity: Math.max(0, prev.sanity - 10),
+        }));
+        addNotification('Sanity Damaged (DEBUG)');
+      }
+      if (e.key === 'o') {
+        // DEBUG: Restore Sanity
+        setStats((prev) => ({
+          ...prev,
+          sanity: Math.min(prev.maxSanity, prev.sanity + 10),
+        }));
+        addNotification('Sanity Restored (DEBUG)');
+      }
     };
     window.addEventListener('keydown', handleGlobalKey);
     return () => window.removeEventListener('keydown', handleGlobalKey);
@@ -447,6 +467,8 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
     setRequestedAction(skillId);
   };
 
+  // REMOVED: SanityVisuals useMemo
+
   return (
     <div
       style={{
@@ -531,31 +553,10 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
 
       {gameState === 'roam' && !isInventoryOpen && !isBonfireMenuOpen && !isLevelUpOpen && (
         <>
-          <div className="absolute top-5 left-5 text-white font-mono z-10 pointer-events-none">
-            <p className="text-yellow-400 mb-2">WASD Move | E Interact</p>
-            <div className="flex gap-4">
-              <p className="text-xl font-bold text-red-500">
-                HP: {stats.hp}/{stats.maxHp}
-              </p>
-              <p className="text-xl font-bold text-blue-500">LVL: {stats.level}</p>
-              <p className="text-xl font-bold text-green-500">XP: {stats.xp}</p>
-              <p className="text-xl font-bold text-amber-500">GOLD: {stats.gold}</p>
-            </div>
-          </div>
+          {/* REPLACES OLD RAW DIVS */}
+          <HUD stats={stats} notifications={notifications} />
 
-          <div className="absolute bottom-5 right-5 text-white font-mono z-10 text-right pointer-events-none">
-            <div className="flex flex-col items-end gap-1">
-              {notifications.map((msg, i) => (
-                <div
-                  key={i}
-                  className="bg-gray-900/80 px-3 py-1 text-xs text-yellow-100 border-l-2 border-yellow-500"
-                >
-                  {msg}
-                </div>
-              ))}
-            </div>
-          </div>
-
+          {/* Keep Minimap as is, or wrap it similarly later */}
           <div className="absolute bottom-5 left-5 text-white font-mono z-10 pointer-events-none">
             <Minimap
               map={mapData}
@@ -594,11 +595,19 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
         </div>
       )}
 
-      <Canvas shadows camera={{ position: [0, 3, 2.5], fov: 50, near: 0.01 }}>
+      <Canvas
+        shadows
+        dpr={[1, 1.5]}
+        performance={{ min: 0.5 }}
+        camera={{ position: [0, 3, 2.5], fov: 50, near: 0.01 }}
+      >
         <color attach="background" args={[FOG_COLOR]} />
 
         {gameState !== 'combat' && <fog attach="fog" args={['#000000', 5, 12]} />}
         <hemisphereLight color="#222244" groundColor="#000000" intensity={0.2} />
+
+        {/* NEW: Updated SanityEffects passing props directly */}
+        <SanityEffects sanity={stats.sanity} maxSanity={stats.maxSanity} />
 
         {gameState !== 'combat' && <AbyssPlane />}
 

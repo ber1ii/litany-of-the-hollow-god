@@ -39,34 +39,34 @@ export const BonfireMenu: React.FC<BonfireMenuProps> = ({
       if (e.key === 'ArrowDown' || e.key === 's') {
         setSelectedIndex((prev) => (prev < menuOptions.length - 1 ? prev + 1 : 0));
       }
-
       if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
         menuOptions[selectedIndex].action();
       }
-
-      if (e.key === 'Escape') {
-        onClose();
-      }
     };
-
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedIndex, onClose, menuOptions]);
+  }, [selectedIndex, menuOptions]);
 
   return (
-    <div className="absolute inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm">
-      <div className="w-[400px] border-y-4 border-double border-neutral-600 bg-neutral-900/95 p-8 text-center shadow-2xl relative">
-        <div className="mb-8">
-          <h2 className="text-3xl font-serif text-amber-500 tracking-[0.2em] uppercase border-b border-neutral-700 pb-4">
-            Bonfire
-          </h2>
-          <p className="text-xs text-neutral-500 mt-2 font-mono uppercase tracking-widest">
-            Respite from the dark
-          </p>
-        </div>
+    <div
+      className="absolute inset-0 z-50 flex items-center justify-start bg-black/80 backdrop-blur-sm"
+      style={{ paddingLeft: '15vmin' }}
+    >
+      <div className="flex flex-col items-start relative">
+        {/* Decorative Line */}
+        <div
+          className="absolute left-0 top-0 bottom-0 bg-neutral-800"
+          style={{ width: '1px', left: '-4vmin' }}
+        />
 
-        <div className="flex flex-col gap-4">
+        <h1
+          className="font-serif text-amber-500 uppercase tracking-[0.2em] mb-[4vmin] drop-shadow-lg"
+          style={{ fontSize: '4vmin' }}
+        >
+          Bonfire Lit
+        </h1>
+
+        <div className="flex flex-col gap-[1.5vmin] min-w-[30vmin]">
           {menuOptions.map((opt, idx) => {
             const isSelected = idx === selectedIndex;
             return (
@@ -74,26 +74,44 @@ export const BonfireMenu: React.FC<BonfireMenuProps> = ({
                 key={opt.label}
                 onClick={opt.action}
                 onMouseEnter={() => setSelectedIndex(idx)}
-                className={`group relative px-6 py-3 transition-all uppercase tracking-widest font-serif border ${
+                className={`group relative transition-all uppercase tracking-widest font-serif border ${
                   isSelected
                     ? 'bg-neutral-800 text-amber-100 border-neutral-600 scale-105'
                     : 'bg-transparent text-neutral-500 border-transparent hover:border-neutral-700'
                 }`}
+                style={{
+                  padding: '1.5vmin 3vmin',
+                  fontSize: '1.5vmin',
+                }}
               >
+                {/* Left Icon */}
                 <span
-                  className={`absolute left-4 transition-opacity text-amber-600 ${
+                  className={`absolute transition-opacity text-amber-600 ${
                     isSelected ? 'opacity-100' : 'opacity-0'
                   }`}
+                  style={{
+                    left: '1vmin',
+                    fontSize: '1.2vmin',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                  }}
                 >
                   ◈
                 </span>
 
                 {opt.label}
 
+                {/* Right Icon */}
                 <span
-                  className={`absolute right-4 transition-opacity text-amber-600 ${
+                  className={`absolute transition-opacity text-amber-600 ${
                     isSelected ? 'opacity-100' : 'opacity-0'
                   }`}
+                  style={{
+                    right: '1vmin',
+                    fontSize: '1.2vmin',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                  }}
                 >
                   ◈
                 </span>
@@ -102,8 +120,8 @@ export const BonfireMenu: React.FC<BonfireMenuProps> = ({
           })}
         </div>
 
-        <div className="mt-8 pt-4 border-t border-neutral-800">
-          <div className="text-[10px] text-neutral-600 font-mono">
+        <div className="border-t border-neutral-800 mt-[4vmin] pt-[2vmin]">
+          <div className="text-neutral-600 font-mono" style={{ fontSize: '1.2vmin' }}>
             WASD to Navigate • ENTER to Select
           </div>
         </div>
