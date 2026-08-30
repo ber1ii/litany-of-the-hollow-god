@@ -8,4 +8,7 @@ export const KNIGHT_SPRITES: CombatSpriteDef = {
   death: '/sprites/combat/knight/Death.png',
   pray: '/sprites/combat/knight/Pray.png',
   cast: '/sprites/combat/knight/Pray.png', // Fallback for knight casting
+  plunge: '/sprites/combat/knight/attack_from_air.png',
+  bloodSurge: '/sprites/combat/knight/Blood_surge.png',
+  heal: '/sprites/combat/knight/Health.png',
 };

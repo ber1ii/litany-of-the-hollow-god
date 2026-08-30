@@ -4,14 +4,10 @@ import { AtlasFloor } from './AtlasFloor';
 import { PlayerController } from './PlayerController';
 import * as THREE from 'three';
 import { LevelBuilder } from './LevelBuilder';
-import { TILE_TYPES } from './MapData';
+import { TILE_TYPES, TILE_SIZE } from './MapData';
 import { CombatScene } from '../Combat/CombatScene';
 import { CombatHud } from '../Combat/CombatHud';
-import { INITIAL_STATS } from '../../types/GameTypes';
-import type { PlayerStats, InventoryItem, CombatEnemyInstance } from '../../types/GameTypes';
-import { ENEMIES } from '../../data/Enemies';
-import { Minimap } from './Minimap';
-import { CombatTransitionCamera } from './CombatTransitionCamera';
+import type { InventoryItem } from '../../types/GameTypes';
 import { ITEM_REGISTRY } from '../../data/ItemRegistry';
 import { getTileDef } from '../../data/TileRegistry';
 import { InventoryMenu } from '../UI/InventoryMenu';
@@ -24,6 +20,8 @@ import { SkillTree } from '../UI/SkillTree';
 import { EquipmentMenu } from '../UI/EquipmentMenu';
 import { SanityEffects } from '../Effects/SanityEffects';
 import { HUD } from '../UI/HUD';
+import { usePlayerStore } from '../../hooks/usePlayerStore';
+import { Minimap } from './Minimap';
 
 const FOG_COLOR = '#040408';
 
@@ -53,7 +51,19 @@ interface GameProps {
 }
 
 export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
-  // --- INITIALIZATION ---
+  // Store Subscriptions
+  const stats = usePlayerStore((state) => state.stats);
+  const inventory = usePlayerStore((state) => state.inventory);
+  const initializeFromSave = usePlayerStore((state) => state.initializeFromSave);
+  const consumeItem = usePlayerStore((state) => state.consumeItem);
+  const equipItem = usePlayerStore((state) => state.equipItem);
+  const addItem = usePlayerStore((state) => state.addItem);
+  const removeItem = usePlayerStore((state) => state.removeItem);
+  const restAtBonfire = usePlayerStore((state) => state.restAtBonfire);
+  const addRewards = usePlayerStore((state) => state.addRewards);
+  const equipSkills = usePlayerStore((state) => state.equipSkills);
+  const unlockSkill = usePlayerStore((state) => state.purchaseSkill);
+  const setStats = usePlayerStore((state) => state.setStats);
 
   const [currentLevelId] = useState(
     initialSaveData ? initialSaveData.currentLevelId : INITIAL_LEVEL_ID
@@ -81,20 +91,17 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
     return activeMap;
   });
 
-  // FIX: Safe Stats Loading
-  const [stats, setStats] = useState<PlayerStats>(() => {
+  // Initialize Store on Mount
+  useEffect(() => {
     if (initialSaveData) {
-      return {
-        ...INITIAL_STATS,
-        ...initialSaveData.stats,
-        statusEffects: initialSaveData.stats.statusEffects || [],
-      };
+      initializeFromSave(initialSaveData.stats, initialSaveData.inventory);
+    } else {
+      initializeFromSave(usePlayerStore.getState().stats, [
+        { ...ITEM_REGISTRY['flask_crimson'], count: 3 },
+        { ...ITEM_REGISTRY['flask_cerulean'], count: 2 },
+      ]);
     }
-    return INITIAL_STATS;
-  });
-
-  // REMOVED: sanityRef, maxSanityRef, and their useEffect.
-  // We now pass stats.sanity directly to the component.
+  }, [initialSaveData, initializeFromSave]);
 
   const [deadEnemyIds, setDeadEnemyIds] = useState<Set<string>>(
     initialSaveData ? new Set(initialSaveData.deadEnemyIds) : new Set()
@@ -112,23 +119,11 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
 
   const playerRotationRef = useRef(initialSaveData ? initialSaveData.playerRotation : 0);
 
-  const [inventory, setInventory] = useState<InventoryItem[]>(
-    initialSaveData
-      ? initialSaveData.inventory
-      : [
-          { ...ITEM_REGISTRY['flask_crimson'], count: 3 },
-          { ...ITEM_REGISTRY['flask_cerulean'], count: 2 },
-        ]
-  );
-
-  // --- GAME STATE ---
   const [gameState, setGameState] = useState<
     'roam' | 'combat' | 'gameover' | 'combat_transition' | 'resting'
   >('roam');
 
   const [currentEnemyId, setCurrentEnemyId] = useState<string>('SKELETON');
-  const [combatEnemy, setCombatEnemy] = useState<CombatEnemyInstance | null>(null);
-
   const combatCooldown = useRef(false);
   const currentThemeId = 'DUNGEON';
   const enemyTracker = useRef(new Map<string, { x: number; z: number }>());
@@ -143,10 +138,6 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
   const [isEquipmentMenuOpen, setEquipmentMenuOpen] = useState(false);
 
   const [isSaving, setIsSaving] = useState(false);
-
-  const [menuState, setMenuState] = useState<
-    'main' | 'attack_select' | 'items' | 'move_select' | 'skill_select'
-  >('main');
 
   const addNotification = (msg: string) => {
     setNotifications((prev) => [...prev.slice(-4), msg]);
@@ -165,79 +156,34 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
     levelChanges.current.get(currentLevelId)?.set(`${x},${z}`, newTileId);
   };
 
-  const handleSkillUnlock = (skillId: string, cost: number) => {
-    setStats((prev) => ({
-      ...prev,
-      xp: prev.xp - cost,
-      unlockedSkills: [...prev.unlockedSkills, skillId],
-    }));
-  };
+  // Tab toggles the inventory menu while roaming. InventoryMenu itself
+  // listens for Tab to close, so this only ever needs to open it.
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        if (gameState === 'roam' && !isBonfireMenuOpen && !isSkillTreeOpen && !isLevelUpOpen) {
+          setInventoryOpen(true);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [gameState, isBonfireMenuOpen, isSkillTreeOpen, isLevelUpOpen]);
 
-  const handleEquipSkills = (newSkills: string[]) => {
-    setStats((prev) => ({
-      ...prev,
-      equippedSkills: newSkills,
-    }));
-  };
-
-  const handleRest = async (statsOverride?: PlayerStats) => {
+  const handleRest = async () => {
     setBonfireMenuOpen(false);
     setGameState('resting');
 
-    const currentStats = statsOverride || stats;
-
-    const restedStats = {
-      ...currentStats,
-      hp: currentStats.maxHp,
-      mp: currentStats.maxMp,
-      sanity: currentStats.maxSanity,
-    };
-
-    const restedInventory = inventory.map((item) => {
-      if (item.id === 'flask_crimson') return { ...item, count: 3 };
-      if (item.id === 'flask_cerulean') return { ...item, count: 2 };
-      return item;
-    });
-
-    const nextDeadEnemies = new Set<string>();
-    deadEnemyIds.forEach((id) => {
-      const baseId = id.split('-')[0].toUpperCase();
-      const def = ENEMIES[baseId];
-      if (def && def.tier === 'boss') {
-        nextDeadEnemies.add(id);
-      }
-    });
-
-    setStats(restedStats);
-    setInventory(restedInventory);
-    setDeadEnemyIds(nextDeadEnemies);
-
-    let doorsClosed = 0;
-    setMapData((prev) => {
-      const newMap = prev.map((row) => [...row]);
-      for (let z = 0; z < newMap.length; z++) {
-        for (let x = 0; x < newMap[0].length; x++) {
-          if (newMap[z][x] === TILE_TYPES.DOOR_OPEN) {
-            newMap[z][x] = TILE_TYPES.DOOR_CLOSED;
-            if (!levelChanges.current.has(currentLevelId))
-              levelChanges.current.set(currentLevelId, new Map());
-            levelChanges.current.get(currentLevelId)?.set(`${x},${z}`, TILE_TYPES.DOOR_CLOSED);
-            doorsClosed++;
-          }
-        }
-      }
-      return newMap;
-    });
-
-    if (doorsClosed > 0) addNotification('The doors slam shut...');
+    restAtBonfire();
 
     setTimeout(() => setGameState('roam'), 1000);
     addNotification('Restored Health, Mind & Flasks.');
 
     setIsSaving(true);
     const success = await SaveManager.saveGame({
-      stats: restedStats,
-      inventory: restedInventory,
+      stats: usePlayerStore.getState().stats,
+      inventory: usePlayerStore.getState().inventory,
       currentLevelId: currentLevelId,
       playerPos: {
         x: playerPosRef.current.x,
@@ -245,7 +191,7 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
         z: playerPosRef.current.z,
       },
       playerRotation: playerRotationRef.current,
-      deadEnemyIds: Array.from(nextDeadEnemies),
+      deadEnemyIds: Array.from(deadEnemyIds),
       levelChanges: SaveManager.serializeLevelChanges(levelChanges.current),
       timestamp: Date.now(),
     });
@@ -255,109 +201,17 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
     else addNotification('Error Saving Game.');
   };
 
-  const handleLevelUpConfirm = (newStats: PlayerStats) => {
-    setLevelUpOpen(false);
-    addNotification(`Level Up! You are now Level ${newStats.level}.`);
-    handleRest(newStats);
-  };
-
-  const [combatPhase, setCombatPhase] = useState<
-    'player_turn' | 'player_acting' | 'enemy_turn' | 'enemy_acting' | 'victory' | 'defeat'
-  >('player_turn');
-  const [requestedAction, setRequestedAction] = useState<string | null>(null);
-  const [transitionTarget, setTransitionTarget] = useState<{ x: number; z: number } | null>(null);
-
-  const isDeepMenuOpen =
-    isBonfireMenuOpen || isLevelUpOpen || isSkillTreeOpen || isEquipmentMenuOpen;
-
-  useEffect(() => {
-    const handleGlobalKey = (e: KeyboardEvent) => {
-      if (e.key === 'Tab') {
-        e.preventDefault();
-        if (gameState === 'roam' && !isDeepMenuOpen) {
-          setInventoryOpen((prev) => !prev);
-        }
-      }
-      if (e.key === 'Escape') {
-        if (isLevelUpOpen) setLevelUpOpen(false);
-        else if (isBonfireMenuOpen) setBonfireMenuOpen(false);
-        else if (isSkillTreeOpen) setSkillTreeOpen(false);
-        else if (isEquipmentMenuOpen) setEquipmentMenuOpen(false);
-      }
-      if (e.key === 'p') {
-        // DEBUG: Damage sanity
-        setStats((prev) => ({
-          ...prev,
-          sanity: Math.max(0, prev.sanity - 10),
-        }));
-        addNotification('Sanity Damaged (DEBUG)');
-      }
-      if (e.key === 'o') {
-        // DEBUG: Restore Sanity
-        setStats((prev) => ({
-          ...prev,
-          sanity: Math.min(prev.maxSanity, prev.sanity + 10),
-        }));
-        addNotification('Sanity Restored (DEBUG)');
-      }
-    };
-    window.addEventListener('keydown', handleGlobalKey);
-    return () => window.removeEventListener('keydown', handleGlobalKey);
-  }, [
-    gameState,
-    isInventoryOpen,
-    isDeepMenuOpen,
-    isLevelUpOpen,
-    isBonfireMenuOpen,
-    isSkillTreeOpen,
-    isEquipmentMenuOpen,
-  ]);
-
   const handleUseItem = (item: InventoryItem) => {
     if (item.type === 'consumable' || item.type === 'flask') {
-      let used = false;
-
-      if (item.effect) {
-        if (item.effect.type === 'heal') {
-          if (stats.hp < stats.maxHp) {
-            setStats((prev) => ({
-              ...prev,
-              hp: Math.min(prev.maxHp, prev.hp + item.effect!.value),
-            }));
-            addNotification(`Restored ${item.effect.value} HP`);
-            used = true;
-          } else {
-            addNotification('Health is already full.');
-          }
-        }
-        if (item.effect.type === 'restore_mind') {
-          if (stats.mp < stats.maxMp) {
-            setStats((prev) => ({
-              ...prev,
-              mp: Math.min(prev.maxMp, prev.mp + item.effect!.value),
-            }));
-            addNotification(`Restored Mind`);
-            used = true;
-          } else {
-            addNotification('Mind is already full.');
-          }
-        }
+      const success = consumeItem(item.id);
+      if (success) {
+        addNotification(`Used ${item.name}`);
+      } else {
+        addNotification(`Cannot use ${item.name}`);
       }
-
-      if (used) {
-        setInventory((prev) => {
-          return prev
-            .map((i) => {
-              if (i.id === item.id) return { ...i, count: i.count - 1 };
-              return i;
-            })
-            .filter((i) => i.type === 'flask' || i.count > 0);
-        });
-      }
-    }
-
-    if (item.type === 'weapon') {
-      addNotification(`Equipped ${item.name} (Visuals WIP)`);
+    } else if (item.type === 'weapon') {
+      equipItem(item.id);
+      addNotification(`Equipped ${item.name}`);
     }
   };
 
@@ -370,20 +224,21 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
       return;
     }
 
-    if (tileDef.type === 'item' && tileDef.itemId) {
-      const item = ITEM_REGISTRY[tileDef.itemId];
-      if (item) {
-        addNotification(`Picked up ${item.name}`);
-        setInventory((prev) => {
-          const existingIdx = prev.findIndex((i) => i.id === item.id);
-          if (existingIdx >= 0 && item.stackable) {
-            const newInv = [...prev];
-            newInv[existingIdx].count += 1;
-            return newInv;
-          }
-          return [...prev, { ...item, count: 1 }];
-        });
-        updateMapTile(x, z, TILE_TYPES.FLOOR_BASE);
+    if (tileId === TILE_TYPES.DOOR_CLOSED) {
+      updateMapTile(x, z, TILE_TYPES.DOOR_OPEN);
+      addNotification('Door opened.');
+      return;
+    }
+
+    if (tileId === TILE_TYPES.DOOR_OPEN) {
+      const pGridX = Math.round(playerPosRef.current.x / TILE_SIZE);
+      const pGridZ = Math.round(playerPosRef.current.z / TILE_SIZE);
+      const isStandingInDoor = pGridX === x && pGridZ === z;
+      if (isStandingInDoor) {
+        addNotification("Can't close a door you're standing in.");
+      } else {
+        updateMapTile(x, z, TILE_TYPES.DOOR_CLOSED);
+        addNotification('Door closed.');
       }
       return;
     }
@@ -391,67 +246,42 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
     if (tileId === TILE_TYPES.DOOR_LOCKED_SILVER) {
       const hasKey = inventory.some((i) => i.id === 'silver_key');
       if (hasKey) {
-        addNotification('Unlocked with Silver Key');
+        removeItem('silver_key');
         updateMapTile(x, z, TILE_TYPES.DOOR_OPEN);
+        addNotification('Unlocked door with Silver Key.');
       } else {
-        addNotification('Locked (Requires Silver Key)');
+        addNotification('Locked. Need Silver Key.');
       }
-    } else if (tileId === TILE_TYPES.DOOR_CLOSED) {
-      updateMapTile(x, z, TILE_TYPES.DOOR_OPEN);
-    } else if (tileId === TILE_TYPES.DOOR_OPEN) {
-      updateMapTile(x, z, TILE_TYPES.DOOR_CLOSED);
+      return;
     }
-  };
 
-  const handleStep = (x: number, z: number) => {
-    if (z < 0 || z >= mapData.length || x < 0 || x >= mapData[0].length) return;
-    const tile = mapData[z][x];
-    if (tile === TILE_TYPES.GOLD) {
-      addNotification('Picked up Gold');
-      setStats((prev) => ({ ...prev, gold: prev.gold + 10 }));
+    if (tileId === TILE_TYPES.GOLD) {
+      const GOLD_PICKUP_AMOUNT = 25;
+      addRewards(0, GOLD_PICKUP_AMOUNT);
+      addNotification(`Picked up ${GOLD_PICKUP_AMOUNT} Gold.`);
       updateMapTile(x, z, TILE_TYPES.FLOOR_BASE);
-    }
-  };
-
-  const startCombat = (enemyId: string) => {
-    if (combatCooldown.current) return;
-    if (deadEnemyIds.has(enemyId)) return;
-
-    const enemyPos = enemyTracker.current.get(enemyId);
-    if (enemyPos) {
-      setTransitionTarget(enemyPos);
+      return;
     }
 
-    setCurrentEnemyId(enemyId);
-    setCombatEnemy(null);
-
-    setGameState('combat_transition');
-
-    setTimeout(() => {
-      setGameState('combat');
-      setCombatPhase('player_turn');
-      setMenuState('main');
-      setRequestedAction(null);
-    }, 1500);
+    if (tileDef.type === 'item' && tileDef.itemId) {
+      const item = ITEM_REGISTRY[tileDef.itemId];
+      if (item) {
+        addNotification(`Picked up ${item.name}`);
+        addItem(item, 1);
+        updateMapTile(x, z, TILE_TYPES.FLOOR_BASE);
+      }
+      return;
+    }
   };
 
   const endCombat = (result: { victory: boolean; hpRemaining: number }) => {
     if (result.victory) {
-      setStats((prev) => {
-        return {
-          ...prev,
-          hp: result.hpRemaining,
-          xp: prev.xp + 50,
-          gold: prev.gold + 20,
-        };
-      });
-
+      addRewards(50, 20);
       setDeadEnemyIds((prev) => new Set(prev).add(currentEnemyId));
       if (enemyTracker.current) enemyTracker.current.delete(currentEnemyId);
       setGameState('roam');
     } else {
-      if (result.hpRemaining > 0) {
-        setStats((prev) => ({ ...prev, hp: result.hpRemaining }));
+      if (stats.hp > 0) {
         setGameState('roam');
         combatCooldown.current = true;
         setTimeout(() => {
@@ -462,12 +292,6 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
       }
     }
   };
-
-  const handlePlayerAction = (skillId: string) => {
-    setRequestedAction(skillId);
-  };
-
-  // REMOVED: SanityVisuals useMemo
 
   return (
     <div
@@ -480,6 +304,12 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
       }}
     >
       <style>{overlayStyle}</style>
+
+      {isSaving && (
+        <div className="absolute top-4 right-4 z-50 font-mono text-xs text-amber-400 bg-black/80 px-3 py-1 border border-amber-500/50 rounded animate-pulse">
+          Saving...
+        </div>
+      )}
 
       {isInventoryOpen && (
         <InventoryMenu
@@ -511,15 +341,7 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
           stats={stats}
           inventory={inventory}
           onClose={() => setEquipmentMenuOpen(false)}
-          onEquipSkill={handleEquipSkills}
-        />
-      )}
-
-      {isSkillTreeOpen && (
-        <SkillTree
-          stats={stats}
-          onClose={() => setSkillTreeOpen(false)}
-          onUnlock={handleSkillUnlock}
+          onEquipSkill={equipSkills}
         />
       )}
 
@@ -527,72 +349,47 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
         <LevelUpMenu
           stats={stats}
           onClose={() => setLevelUpOpen(false)}
-          onConfirm={handleLevelUpConfirm}
+          onConfirm={(newStats) => {
+            // LevelUpMenu only calls its internal store-commit action
+            // (applyLevelUpAllocation) when NO onConfirm prop is given —
+            // since we pass one, it hands us the drafted stats instead and
+            // expects US to write them. Previously this callback ignored
+            // newStats entirely, so gold/level/points never persisted.
+            setStats(newStats);
+            setLevelUpOpen(false);
+            handleRest();
+          }}
         />
       )}
 
-      {gameState === 'resting' && (
-        <div
-          className="absolute inset-0 z-[100] bg-white pointer-events-none"
-          style={{ animation: 'fadeWhite 1s forwards' }}
+      {isSkillTreeOpen && (
+        <SkillTree
+          stats={stats}
+          onUnlock={(skillId) => unlockSkill(skillId)}
+          onClose={() => setSkillTreeOpen(false)}
         />
       )}
 
-      {isSaving && (
-        <div className="absolute top-5 right-5 text-neutral-500 font-mono text-xs animate-pulse z-[200]">
-          SAVING...
-        </div>
-      )}
-
-      {gameState === 'combat_transition' && (
-        <div
-          className="absolute inset-0 z-[100] pointer-events-none"
-          style={{ animation: 'flashRed 1.4s forwards' }}
-        />
-      )}
-
-      {gameState === 'roam' && !isInventoryOpen && !isBonfireMenuOpen && !isLevelUpOpen && (
-        <>
-          {/* REPLACES OLD RAW DIVS */}
-          <HUD stats={stats} notifications={notifications} />
-
-          {/* Keep Minimap as is, or wrap it similarly later */}
-          <div className="absolute bottom-5 left-5 text-white font-mono z-10 pointer-events-none">
-            <Minimap
-              map={mapData}
-              playerPos={playerPosRef}
-              playerRotation={playerRotationRef}
-              enemyTracker={enemyTracker}
-            />
-          </div>
-        </>
-      )}
+      {gameState === 'roam' &&
+        !isInventoryOpen &&
+        !isBonfireMenuOpen &&
+        !isLevelUpOpen &&
+        !isSkillTreeOpen && <HUD stats={stats} notifications={notifications} />}
 
       {gameState === 'combat' && (
         <CombatHud
-          combatState={combatPhase}
-          menuState={menuState}
-          setMenuState={setMenuState}
-          playerStats={stats}
-          enemyInstance={combatEnemy}
-          onAction={handlePlayerAction}
           onLeave={(victory) => endCombat({ victory, hpRemaining: stats.hp })}
           inventory={inventory}
         />
       )}
 
-      {gameState === 'gameover' && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/90 z-50">
-          <div className="text-center">
-            <h1 className="text-6xl text-red-600 font-mono mb-4">YOU DIED</h1>
-            <button
-              className="px-6 py-3 bg-white text-black font-mono hover:bg-gray-200"
-              onClick={onExit}
-            >
-              RETURN TO TITLE
-            </button>
-          </div>
-        </div>
+      {(gameState === 'roam' || gameState === 'resting') && (
+        <Minimap
+          map={mapData}
+          playerPos={playerPosRef}
+          playerRotation={playerRotationRef}
+          enemyTracker={enemyTracker}
+        />
       )}
 
       <Canvas
@@ -602,13 +399,10 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
         camera={{ position: [0, 3, 2.5], fov: 50, near: 0.01 }}
       >
         <color attach="background" args={[FOG_COLOR]} />
-
         {gameState !== 'combat' && <fog attach="fog" args={['#000000', 5, 12]} />}
         <hemisphereLight color="#222244" groundColor="#000000" intensity={0.2} />
 
-        {/* NEW: Updated SanityEffects passing props directly */}
         <SanityEffects sanity={stats.sanity} maxSanity={stats.maxSanity} />
-
         {gameState !== 'combat' && <AbyssPlane />}
 
         {gameState === 'roam' || gameState === 'combat_transition' || gameState === 'resting' ? (
@@ -617,36 +411,30 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
             <LevelBuilder
               map={mapData}
               playerPos={playerPosRef}
-              onCombatStart={startCombat}
+              onCombatStart={(id) => {
+                setCurrentEnemyId(id);
+                setGameState('combat');
+              }}
               enemyTracker={enemyTracker}
               deadEnemyIds={deadEnemyIds}
             />
-
             <PlayerController
               map={mapData}
               onInteract={handleInteract}
-              onStep={handleStep}
+              onStep={() => {}}
               playerRef={playerPosRef}
               playerRotRef={playerRotationRef}
-              active={gameState === 'roam' && !isInventoryOpen && !isDeepMenuOpen}
+              active={
+                gameState === 'roam' && !isInventoryOpen && !isBonfireMenuOpen && !isSkillTreeOpen
+              }
             />
-
-            {gameState === 'combat_transition' && transitionTarget && (
-              <CombatTransitionCamera enemyPos={transitionTarget} />
-            )}
           </>
         ) : gameState === 'combat' ? (
           <CombatScene
-            key={currentEnemyId} // FIX: Force Remount on new enemy
+            key={currentEnemyId}
             enemyId={currentEnemyId}
             themeId={currentThemeId}
             initialStats={stats}
-            combatPhase={combatPhase}
-            setCombatPhase={setCombatPhase}
-            onEnemyUpdate={setCombatEnemy}
-            requestedAction={requestedAction}
-            setRequestedAction={setRequestedAction}
-            updatePlayerStats={setStats}
           />
         ) : null}
       </Canvas>

@@ -2,45 +2,37 @@ import type { ItemDef } from '../data/ItemRegistry';
 import type { ClassId } from '../data/Classes';
 
 export interface PlayerStats {
-  // ID
   classId: ClassId;
-  // Core Vitals
   hp: number;
   maxHp: number;
-  mp: number; // Mana Points
+  mp: number;
   maxMp: number;
-  sanity: number; // 100 = Sane, 0 = Insane
+  sanity: number;
   maxSanity: number;
 
-  // Progression Resources
   level: number;
-  xp: number; // Used for Skills/Spells
-  gold: number; // Used for Stats (Souls-like leveling)
+  xp: number;
+  gold: number;
 
-  // Attributes
-  vitality: number; // HP
-  strength: number; // Physical Dmg
-  dexterity: number; // Crit / Speed
-  intelligence: number; // Magic Dmg
-  mind: number; // MP / Sanity Resist
-  agility: number; // Turn Order / Dodge
+  vitality: number;
+  strength: number;
+  dexterity: number;
+  intelligence: number;
+  mind: number;
+  agility: number;
 
-  // Computed Combat Stats
   attack: number;
   defense: number;
 
-  // Flasks (Estus System)
   flaskCharges: number;
   maxFlaskCharges: number;
 
-  // Active Effects (Buffs/Debuffs)
-  statusEffects: StatusEffect[];
+  // New: Core Inventory Array
+  inventory: InventoryItem[];
 
-  // Skills
+  statusEffects: StatusEffect[];
   unlockedSkills: string[];
   equippedSkills: string[];
-
-  // Talismans
   equippedTalismans: string[];
 }
 
@@ -49,7 +41,7 @@ export type MonsterType = 'skeleton' | 'orc2' | 'orc3' | 'vampire1' | 'vampire_b
 export type InventoryItem = ItemDef & { count: number };
 
 export type StatusEffectType =
-  'bleed' | 'poison' | 'stun' | 'weakness' | 'vulnerable' | 'buff_damage';
+  'bleed' | 'poison' | 'stun' | 'weakness' | 'vulnerable' | 'buff_damage' | 'lifesteal';
 
 export interface StatusEffect {
   id: string;
@@ -67,10 +59,11 @@ export interface BodyPart {
   maxHp: number;
   isSevered: boolean;
   isVital: boolean;
-
-  // Stats
-  hitChanceMod: number; // e.g. -20 for head (harder to hit)
+  hitChanceMod: number;
   damageMultiplier: number;
+  severChance?: number;
+  isSeverable?: boolean;
+  hasHp?: boolean;
 }
 
 export interface SpriteConfig {
@@ -87,18 +80,15 @@ export interface EnemyAttackDef {
   damageMod: number;
   accuracyMod?: number;
   requiredPartId?: string;
-  requiredAnyParts?: string[]; // If any of these parts are severed, the attack is disabled
-  requiredAllParts?: string[]; // If all of these parts are severed, the attack is disabled
-  // Frame Pacing & Easing
-  speedMultiplier?: number; // e.g., 1.5 for Quick Strike
-  pauseFrame?: number; // Frame index to freeze on (e.g., Frame 5 for heavy wind-up)
-  pauseDurationMs?: number; // Freeze duration in ms (e.g., 1200ms)
-  // Camera & Effects
-  cameraZoom?: boolean; // Triggers push-in on the sprite
-  screenShake?: number; // Shake intensity on hit frame
-  // VFX Decoupling
+  requiredAnyParts?: string[];
+  requiredAllParts?: string[];
+  speedMultiplier?: number;
+  pauseFrame?: number;
+  pauseDurationMs?: number;
+  cameraZoom?: boolean;
+  screenShake?: number;
   projectileType?: 'blood_orb' | 'cursed_flail' | 'shadow_bolt';
-  projectileFrame?: number; // Frame index where projectile spawns
+  projectileFrame?: number;
   isRanged?: boolean;
 }
 
@@ -108,12 +98,12 @@ export interface EnemyDef {
   hasMask?: boolean;
   tier: 'common' | 'elite' | 'boss';
   attacks: EnemyAttackDef[];
-  parts: BodyPart[]; // The template for this enemy's body
+  parts: BodyPart[];
   baseStats: {
     attack: number;
     defense: number;
     speed: number;
-    maxHp: number; // Main HP Pool
+    maxHp: number;
   };
   scale: number;
   sprites: {
@@ -126,7 +116,6 @@ export interface EnemyDef {
   aiBehavior: 'aggressive' | 'defensive' | 'erratic';
 }
 
-// The active instance in combat
 export interface CombatEnemyInstance {
   instanceId: string;
   defId: string;
@@ -138,46 +127,35 @@ export interface CombatEnemyInstance {
   speed: number;
   parts: BodyPart[];
   statusEffects: StatusEffect[];
-
   attackDebuff: number;
   damageTakenMultiplier: number;
 }
 
 export const INITIAL_STATS: PlayerStats = {
   classId: 'KNIGHT',
-  // Vitals
   hp: 100,
   maxHp: 100,
   mp: 50,
   maxMp: 50,
   sanity: 100,
   maxSanity: 100,
-
-  // Resources
   level: 1,
   xp: 500,
   gold: 1000,
-
-  // Knight Class Defaults (Fallback)
   vitality: 10,
   strength: 12,
   dexterity: 9,
   intelligence: 8,
   mind: 9,
   agility: 9,
-
-  // Derived (Will be recalculated on load)
   attack: 12,
   defense: 10,
-
-  // Estus
   flaskCharges: 3,
   maxFlaskCharges: 3,
 
-  // Effects
-  statusEffects: [],
+  inventory: [], // Seed this via a save manager or character creation later
 
-  // Skills
+  statusEffects: [],
   unlockedSkills: [],
   equippedSkills: [],
   equippedTalismans: [],

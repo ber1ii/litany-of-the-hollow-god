@@ -6,4 +6,7 @@ export interface CombatSpriteDef {
   death: string;
   pray: string;
   cast: string;
+  plunge: string;
+  bloodSurge: string;
+  heal: string;
 }

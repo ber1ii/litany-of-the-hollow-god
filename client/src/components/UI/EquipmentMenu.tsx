@@ -1,39 +1,51 @@
 import React, { useState } from 'react';
 import type { PlayerStats, InventoryItem } from '../../types/GameTypes';
 import { SKILL_DATABASE } from '../../data/Skills';
+import { usePlayerStore } from '../../hooks/usePlayerStore';
 
 interface EquipmentMenuProps {
-  stats: PlayerStats;
-  inventory: InventoryItem[];
+  stats?: PlayerStats;
+  inventory?: InventoryItem[];
   onClose: () => void;
-  onEquipSkill: (newEquipped: string[]) => void;
+  onEquipSkill?: (newEquipped: string[]) => void;
 }
 
-// FIX: Define a specific type for tabs to avoid 'any'
 type MenuTab = 'weapons' | 'skills' | 'talismans';
 
 export const EquipmentMenu: React.FC<EquipmentMenuProps> = ({
-  stats,
-  inventory,
+  stats: propStats,
+  inventory: propInventory,
   onClose,
   onEquipSkill,
 }) => {
+  const storeStats = usePlayerStore((state) => state.stats);
+  const storeInventory = usePlayerStore((state) => state.inventory);
+  const setStats = usePlayerStore((state) => state.setStats);
+
+  const stats = propStats || storeStats;
+  const inventory = propInventory || storeInventory;
+
   const [activeTab, setActiveTab] = useState<MenuTab>('skills');
 
-  // --- SKILL LOGIC ---
   const handleToggleSkill = (skillId: string) => {
     const isEquipped = stats.equippedSkills.includes(skillId);
+    let nextEquipped: string[];
 
     if (isEquipped) {
-      // Unequip
-      onEquipSkill(stats.equippedSkills.filter((id) => id !== skillId));
+      nextEquipped = stats.equippedSkills.filter((id) => id !== skillId);
     } else {
-      // Equip (Max 4)
       if (stats.equippedSkills.length < 4) {
-        onEquipSkill([...stats.equippedSkills, skillId]);
+        nextEquipped = [...stats.equippedSkills, skillId];
       } else {
         console.warn('Skill slots full!');
+        return;
       }
+    }
+
+    if (onEquipSkill) {
+      onEquipSkill(nextEquipped);
+    } else if (setStats) {
+      setStats({ ...stats, equippedSkills: nextEquipped });
     }
   };
 
@@ -43,7 +55,6 @@ export const EquipmentMenu: React.FC<EquipmentMenuProps> = ({
         {/* HEADER */}
         <div className="flex border-b border-neutral-800">
           {['Weapons', 'Skills', 'Talismans'].map((tabLabel) => {
-            // FIX: Cast string to MenuTab type safely
             const tabKey = tabLabel.toLowerCase() as MenuTab;
             return (
               <button
@@ -149,7 +160,6 @@ export const EquipmentMenu: React.FC<EquipmentMenuProps> = ({
           )}
 
           {activeTab === 'weapons' && (
-            // FIX: Using inventory prop to display weapons
             <div className="flex flex-col h-full overflow-y-auto custom-scrollbar">
               <div className="text-xs text-neutral-500 uppercase tracking-widest mb-4">
                 Owned Weapons

@@ -3,8 +3,8 @@ import { EffectComposer } from '@react-three/postprocessing';
 import { Effect, EffectAttribute } from 'postprocessing';
 import * as THREE from 'three';
 import { sanityFragmentShader } from './SanityShader';
+import { usePlayerStore } from '../../hooks/usePlayerStore';
 
-// Custom postprocessing Effect wrapping the sanity shader.
 class SanityEffectImpl extends Effect {
   constructor() {
     super('SanityEffect', sanityFragmentShader, {
@@ -24,10 +24,6 @@ class SanityEffectImpl extends Effect {
   }
 }
 
-// Documented custom-effect wrapper pattern: forwardRef + dispose={null}.
-// This is what makes @react-three/postprocessing's EffectComposer reliably
-// pick the effect up as an active pass (bare <primitive object={effect} />
-// directly inside EffectComposer is not reliably detected).
 const SanityEffectPrimitive = forwardRef<SanityEffectImpl, { normalizedSanity: number }>(
   ({ normalizedSanity }, ref) => {
     const effect = useMemo(() => new SanityEffectImpl(), []);
@@ -43,12 +39,19 @@ const SanityEffectPrimitive = forwardRef<SanityEffectImpl, { normalizedSanity: n
 SanityEffectPrimitive.displayName = 'SanityEffectPrimitive';
 
 interface SanityEffectsProps {
-  sanity: number;
-  maxSanity: number;
+  sanity?: number;
+  maxSanity?: number;
 }
 
-export const SanityEffects: React.FC<SanityEffectsProps> = ({ sanity, maxSanity }) => {
-  // Safety check to prevent NaN
+export const SanityEffects: React.FC<SanityEffectsProps> = ({
+  sanity: propSanity,
+  maxSanity: propMaxSanity,
+}) => {
+  const storeStats = usePlayerStore((state) => state.stats);
+
+  const sanity = propSanity ?? storeStats?.sanity ?? 100;
+  const maxSanity = propMaxSanity ?? storeStats?.maxSanity ?? 100;
+
   const safeMax = maxSanity || 100;
   const normalizedSanity = Math.max(0, Math.min(1, sanity / safeMax));
 

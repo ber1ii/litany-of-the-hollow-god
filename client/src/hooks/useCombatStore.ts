@@ -8,24 +8,43 @@ export type CombatTurnState =
 
 export type CinematicMode = 'none' | 'heavy_cleave' | 'decapitating_sweep';
 
+export type RequestedAction = string | null;
+
 interface CombatStore {
   turnState: CombatTurnState;
   playerStats: PlayerStats | null;
   enemyInstance: CombatEnemyInstance | null;
+
+  // Target & Action State
   targetPartId: string | null;
+  requestedAction: RequestedAction;
+  activeSkillId: string | null;
+  activeItemId: string | null;
+  activeWeaponAttackId: string | null;
+
+  // Tracking
   severedParts: Record<string, boolean>;
   cinematicMode: CinematicMode;
-  requestedAction: string | null;
   currentAttackDef?: EnemyAttackDef;
+  skillCooldowns: Record<string, number>;
 
+  // Actions
   setTurnState: (state: CombatTurnState) => void;
   setPlayerStats: (stats: PlayerStats | ((prev: PlayerStats) => PlayerStats)) => void;
   setEnemyInstance: (enemy: CombatEnemyInstance | null) => void;
   setTargetPartId: (partId: string | null) => void;
   severLimb: (partId: string) => void;
   triggerCinematic: (mode: CinematicMode) => void;
-  setRequestedAction: (action: string | null) => void;
+
+  setRequestedAction: (action: RequestedAction) => void;
+  setActiveSkillId: (skillId: string | null) => void;
+  setActiveWeaponAttackId: (skillId: string | null) => void;
+  setActiveItemId: (itemId: string | null) => void;
   setCurrentAttackDef: (attackDef?: EnemyAttackDef) => void;
+
+  setSkillCooldown: (skillId: string, turns: number) => void;
+  tickCooldowns: () => void;
+
   triggerEnemyTurn: () => void;
   damageEnemyPart: (partIndex: number, damage: number) => void;
   resetCombat: () => void;
@@ -36,10 +55,14 @@ export const useCombatStore = create<CombatStore>((set, get) => ({
   playerStats: null,
   enemyInstance: null,
   targetPartId: null,
+  requestedAction: null,
+  activeSkillId: null,
+  activeItemId: null,
   severedParts: {},
   cinematicMode: 'none',
-  requestedAction: null,
   currentAttackDef: undefined,
+  skillCooldowns: {},
+  activeWeaponAttackId: null,
 
   setTurnState: (state) => set({ turnState: state }),
   setPlayerStats: (stats) =>
@@ -54,8 +77,28 @@ export const useCombatStore = create<CombatStore>((set, get) => ({
   severLimb: (partId) =>
     set((state) => ({ severedParts: { ...state.severedParts, [partId]: true } })),
   triggerCinematic: (mode) => set({ cinematicMode: mode }),
+
   setRequestedAction: (action) => set({ requestedAction: action }),
+  setActiveSkillId: (skillId) => set({ activeSkillId: skillId }),
+  setActiveWeaponAttackId: (attackId) => set({ activeWeaponAttackId: attackId }),
+  setActiveItemId: (itemId) => set({ activeItemId: itemId }),
   setCurrentAttackDef: (attackDef) => set({ currentAttackDef: attackDef }),
+
+  setSkillCooldown: (skillId, turns) =>
+    set((state) => ({
+      skillCooldowns: { ...state.skillCooldowns, [skillId]: turns },
+    })),
+
+  tickCooldowns: () =>
+    set((state) => {
+      const updatedCooldowns = { ...state.skillCooldowns };
+      Object.keys(updatedCooldowns).forEach((key) => {
+        if (updatedCooldowns[key] > 0) {
+          updatedCooldowns[key] -= 1;
+        }
+      });
+      return { skillCooldowns: updatedCooldowns };
+    }),
 
   triggerEnemyTurn: () => {
     const { enemyInstance } = get();
@@ -77,6 +120,7 @@ export const useCombatStore = create<CombatStore>((set, get) => ({
 
       // Pass turn back to player after short delay
       setTimeout(() => {
+        get().tickCooldowns(); // Tick player cooldowns when their turn starts
         set({ turnState: 'player_turn', requestedAction: null });
       }, 1200);
       return;
@@ -125,10 +169,14 @@ export const useCombatStore = create<CombatStore>((set, get) => ({
       playerStats: null,
       enemyInstance: null,
       targetPartId: null,
+      requestedAction: null,
+      activeSkillId: null,
+      activeItemId: null,
       severedParts: {},
       cinematicMode: 'none',
-      requestedAction: null,
       currentAttackDef: undefined,
+      skillCooldowns: {},
+      activeWeaponAttackId: null,
     }),
 }));
 

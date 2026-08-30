@@ -124,7 +124,7 @@ export const CombatUnit: React.FC<CombatUnitProps> = ({
   useEffect(() => {
     currentLocalFrame.current = 0;
     elapsed.current = 0;
-  }, [sourceTexture?.uuid, startFrame]);
+  }, [sourceTexture?.uuid, startFrame, frames]);
 
   if (!activeTexture) return null;
 

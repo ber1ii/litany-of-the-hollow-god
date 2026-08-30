@@ -26,9 +26,14 @@ export const preloadPlayerAssets = () => {
   const textureSet = new Set<string>();
 
   if (KNIGHT_SPRITES) {
-    Object.values(KNIGHT_SPRITES).forEach((sprite) => {
-      if (sprite && typeof sprite.textureUrl === 'string' && sprite.textureUrl.trim() !== '') {
-        textureSet.add(sprite.textureUrl);
+    // KNIGHT_SPRITES values are plain URL strings (CombatSpriteDef),
+    // unlike EnemyDef.sprites' { textureUrl, frames, ... } shape above —
+    // treating them as objects with .textureUrl meant this silently
+    // added nothing to the set, so no player sprite (including
+    // attack_from_air.png) was ever actually preloaded.
+    Object.values(KNIGHT_SPRITES).forEach((url) => {
+      if (typeof url === 'string' && url.trim() !== '') {
+        textureSet.add(url);
       }
     });
   }

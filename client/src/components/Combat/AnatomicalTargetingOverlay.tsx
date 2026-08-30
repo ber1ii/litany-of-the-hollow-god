@@ -32,13 +32,19 @@ export const AnatomicalTargetingOverlay: React.FC<AnatomicalTargetingOverlayProp
   const targetPartId = useCombatStore((state) => state.targetPartId);
   const setTargetPartId = useCombatStore((state) => state.setTargetPartId);
   const setRequestedAction = useCombatStore((state) => state.setRequestedAction);
+  const activeSkillId = useCombatStore((state) => state.activeSkillId);
+  const activeWeaponAttackId = useCombatStore((state) => state.activeWeaponAttackId);
 
   // Only render targeting nodes during the player's turn
   if (turnState !== 'player_turn' || !enemyInstance) return null;
 
   const handleTargetClick = (part: BodyPart) => {
     if (part.isSevered) return;
-    setRequestedAction(`${selectedMove}|${part.id}`);
+    if (activeSkillId) {
+      setRequestedAction(`skill:${activeSkillId}|${part.id}`);
+    } else {
+      setRequestedAction(`${activeWeaponAttackId || selectedMove}|${part.id}`);
+    }
   };
 
   return (
@@ -115,7 +121,9 @@ export const AnatomicalTargetingOverlay: React.FC<AnatomicalTargetingOverlayProp
                         {part.name}
                       </span>
                       <span className="font-mono text-[10px] text-neutral-400">
-                        {part.hp}/{part.maxHp} HP
+                        {part.hasHp === false
+                          ? 'VITAL — SEVER ONLY'
+                          : `${part.hp}/${part.maxHp} HP`}
                       </span>
                     </div>
                   </motion.div>

@@ -1,24 +1,33 @@
 import React, { useState } from 'react';
 import type { PlayerStats } from '../../types/GameTypes';
+import {
+  usePlayerStore,
+  getLevelUpCost,
+  applyStatPoints,
+  type LevelingStat,
+} from '../../hooks/usePlayerStore';
 
 interface LevelUpMenuProps {
-  stats: PlayerStats;
+  stats?: PlayerStats;
   onClose: () => void;
-  onConfirm: (newStats: PlayerStats) => void;
+  onConfirm?: (newStats: PlayerStats) => void;
 }
 
-type LevelingStat = 'vitality' | 'strength' | 'dexterity' | 'intelligence' | 'mind' | 'agility';
+export const LevelUpMenu: React.FC<LevelUpMenuProps> = ({
+  stats: propStats,
+  onClose,
+  onConfirm,
+}) => {
+  const storeStats = usePlayerStore((state) => state.stats);
+  const applyLevelUpAllocation = usePlayerStore((state) => state.applyLevelUpAllocation);
+  const stats = propStats || storeStats;
 
-export const LevelUpMenu: React.FC<LevelUpMenuProps> = ({ stats, onClose, onConfirm }) => {
+  // Uncommitted draft state — nothing here touches the real store until
+  // "Confirm Level Up" is pressed, so "Leave" can discard freely.
   const [tempStats, setTempStats] = useState({ ...stats });
-
-  // Simple exponential curve
-  const getLevelCost = (lvl: number) => Math.floor(100 * Math.pow(1.1, lvl - 1));
-
   const [currentGold, setCurrentGold] = useState(stats.gold);
   const [currentLevel, setCurrentLevel] = useState(stats.level);
 
-  // We track how many points added per stat in this session
   const [invested, setInvested] = useState<Record<LevelingStat, number>>({
     vitality: 0,
     strength: 0,
@@ -28,7 +37,7 @@ export const LevelUpMenu: React.FC<LevelUpMenuProps> = ({ stats, onClose, onConf
     agility: 0,
   });
 
-  const costForNextLevel = getLevelCost(currentLevel);
+  const costForNextLevel = getLevelUpCost(currentLevel);
 
   const handleStatChange = (stat: LevelingStat, change: number) => {
     if (change > 0) {
@@ -36,36 +45,29 @@ export const LevelUpMenu: React.FC<LevelUpMenuProps> = ({ stats, onClose, onConf
         setCurrentGold((g) => g - costForNextLevel);
         setCurrentLevel((l) => l + 1);
         setInvested((prev) => ({ ...prev, [stat]: prev[stat] + 1 }));
-
-        setTempStats((prev) => {
-          const next = { ...prev };
-          if (stat === 'vitality') next.maxHp += 10;
-          if (stat === 'strength') next.attack += 2;
-          // Add other stat logic here
-          return next;
-        });
+        setTempStats((prev) => applyStatPoints(prev, stat, 1));
       }
     } else {
-      // Refund logic
       if (invested[stat] > 0) {
-        const costOfRefundedLevel = getLevelCost(currentLevel - 1);
+        const costOfRefundedLevel = getLevelUpCost(currentLevel - 1);
         setCurrentGold((g) => g + costOfRefundedLevel);
         setCurrentLevel((l) => l - 1);
         setInvested((prev) => ({ ...prev, [stat]: prev[stat] - 1 }));
-
-        setTempStats((prev) => {
-          const next = { ...prev };
-          if (stat === 'vitality') next.maxHp -= 10;
-          if (stat === 'strength') next.attack -= 2;
-          return next;
-        });
+        setTempStats((prev) => applyStatPoints(prev, stat, -1));
       }
     }
   };
 
   const confirmChanges = () => {
-    const finalStats = { ...tempStats, level: currentLevel, gold: currentGold };
-    onConfirm(finalStats);
+    if (onConfirm) {
+      const finalStats = { ...tempStats, level: currentLevel, gold: currentGold };
+      onConfirm(finalStats);
+      return;
+    }
+
+    const goldSpent = stats.gold - currentGold;
+    const levelsGained = currentLevel - stats.level;
+    applyLevelUpAllocation({ goldSpent, levelsGained, statPoints: invested });
   };
 
   return (
@@ -102,7 +104,6 @@ export const LevelUpMenu: React.FC<LevelUpMenuProps> = ({ stats, onClose, onConf
         </div>
 
         <div className="flex-1 overflow-y-auto custom-scrollbar pr-[1vmin]">
-          {/* Stat Rows */}
           {(
             [
               'vitality',
@@ -126,7 +127,7 @@ export const LevelUpMenu: React.FC<LevelUpMenuProps> = ({ stats, onClose, onConf
                 <span
                   className={`font-mono text-[1.8vmin] w-[3vmin] text-center ${invested[stat] > 0 ? 'text-blue-400' : 'text-white'}`}
                 >
-                  {(stats[stat as keyof PlayerStats] as number) + invested[stat]}
+                  {tempStats[stat]}
                 </span>
                 <button
                   onClick={() => handleStatChange(stat, 1)}
@@ -139,7 +140,6 @@ export const LevelUpMenu: React.FC<LevelUpMenuProps> = ({ stats, onClose, onConf
             </div>
           ))}
 
-          {/* Preview Stats */}
           <div className="mt-[4vmin] pt-[2vmin] border-t border-neutral-800">
             <div className="text-neutral-500 uppercase text-[1vmin] mb-[1.5vmin] tracking-widest">
               Projection

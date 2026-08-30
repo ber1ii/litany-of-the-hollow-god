@@ -1,13 +1,31 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import type { InventoryItem } from '../../types/GameTypes';
+import { usePlayerStore } from '../../hooks/usePlayerStore';
 
 interface InventoryMenuProps {
-  inventory: InventoryItem[];
+  inventory?: InventoryItem[];
   onClose: () => void;
-  onUseItem: (item: InventoryItem) => void;
+  onUseItem?: (item: InventoryItem) => void;
 }
 
-export const InventoryMenu: React.FC<InventoryMenuProps> = ({ inventory, onClose, onUseItem }) => {
+export const InventoryMenu: React.FC<InventoryMenuProps> = ({
+  inventory: propInventory,
+  onClose,
+  onUseItem,
+}) => {
+  const storeInventory = usePlayerStore((state) => state.inventory);
+  const consumeItem = usePlayerStore((state) => state.consumeItem);
+
+  const inventory = propInventory || storeInventory;
+
+  // Stabilize identity across renders (was previously recreated every
+  // render, which made the useEffect below re-subscribe its keydown
+  // listener on every render too).
+  const handleUseItem = useMemo(
+    () => onUseItem || ((item: InventoryItem) => consumeItem(item.id)),
+    [onUseItem, consumeItem]
+  );
+
   const [selectedIndex, setSelectedIndex] = useState(0);
   const maxIndex = Math.max(0, inventory.length - 1);
   const safeIndex = Math.min(selectedIndex, maxIndex);
@@ -25,18 +43,18 @@ export const InventoryMenu: React.FC<InventoryMenuProps> = ({ inventory, onClose
         setSelectedIndex((prev) => Math.min(inventory.length - 1, prev + 1));
       }
       if (e.key === 'Enter' || e.key === ' ') {
-        if (selectedItem) onUseItem(selectedItem);
+        if (selectedItem && ['consumable', 'flask'].includes(selectedItem.type)) {
+          handleUseItem(selectedItem);
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, selectedItem, onUseItem, inventory.length]);
+  }, [onClose, selectedItem, handleUseItem, inventory.length]);
 
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-[4vmin]">
-      {/* SCALABLE CONTAINER: Width/Height in %/vmin */}
       <div className="w-[90vw] max-w-[1600px] h-[80vh] flex border border-neutral-800 bg-black shadow-2xl relative">
-        {/* LEFT: Item List */}
         <div className="flex-[2] border-r border-neutral-800 overflow-y-auto custom-scrollbar bg-neutral-950/50">
           <div className="p-[3vmin] sticky top-0 bg-neutral-950 border-b border-neutral-800 z-10 flex justify-between items-center">
             <h2
@@ -60,14 +78,8 @@ export const InventoryMenu: React.FC<InventoryMenuProps> = ({ inventory, onClose
                 key={idx}
                 onClick={() => setSelectedIndex(idx)}
                 onMouseEnter={() => setSelectedIndex(idx)}
-                className={`
-                  p-[2vmin] border transition-all cursor-pointer flex justify-between items-center
-                  ${
-                    idx === safeIndex
-                      ? 'bg-neutral-900 border-red-900/50 text-red-100'
-                      : 'bg-transparent border-transparent text-neutral-500 hover:bg-neutral-900/50'
-                  }
-                `}
+                className={`p-[2vmin] border transition-all cursor-pointer flex justify-between items-center
+                  ${idx === safeIndex ? 'bg-neutral-900 border-red-900/50 text-red-100' : 'bg-transparent border-transparent text-neutral-500 hover:bg-neutral-900/50'}`}
               >
                 <div className="flex items-center gap-[2vmin]">
                   <div
@@ -87,14 +99,7 @@ export const InventoryMenu: React.FC<InventoryMenuProps> = ({ inventory, onClose
           </div>
         </div>
 
-        {/* RIGHT: Details Panel */}
         <div className="flex-[3] p-[5vmin] flex flex-col relative bg-[url('/textures/ui_noise.png')]">
-          <div className="absolute top-0 right-0 p-[2vmin] opacity-20 pointer-events-none">
-            <div className="w-[20vmin] h-[20vmin] border border-neutral-500 rounded-full flex items-center justify-center">
-              <div className="w-[15vmin] h-[15vmin] border border-neutral-700 rotate-45" />
-            </div>
-          </div>
-
           {selectedItem ? (
             <>
               <div className="border-b border-neutral-800 pb-[3vmin] mb-[3vmin]">
@@ -110,7 +115,6 @@ export const InventoryMenu: React.FC<InventoryMenuProps> = ({ inventory, onClose
                 >
                   {selectedItem.name}
                 </h1>
-                <div className="w-[10vmin] h-[2px] bg-red-900/50" />
               </div>
 
               <div className="flex-1">
@@ -120,9 +124,7 @@ export const InventoryMenu: React.FC<InventoryMenuProps> = ({ inventory, onClose
                 >
                   "{selectedItem.description}"
                 </p>
-
-                {/* Stats Section */}
-                {selectedItem.effect ? (
+                {selectedItem.effect && (
                   <div
                     className="flex items-center gap-[2vmin] text-green-700/80 font-mono"
                     style={{ fontSize: '1.5vmin' }}
@@ -133,25 +135,20 @@ export const InventoryMenu: React.FC<InventoryMenuProps> = ({ inventory, onClose
                       {selectedItem.effect.type === 'heal' ? 'HP' : 'MP'}
                     </span>
                   </div>
-                ) : selectedItem.stats ? (
-                  <div
-                    className="flex items-center gap-[2vmin] text-red-500/80 font-mono"
-                    style={{ fontSize: '1.5vmin' }}
-                  >
-                    <span className="uppercase text-neutral-600">Power</span>
-                    <span>ATK {selectedItem.stats.attack}</span>
-                  </div>
-                ) : null}
+                )}
               </div>
 
-              {/* Action Button */}
               <button
-                onClick={() => onUseItem(selectedItem)}
+                onClick={() => {
+                  if (['consumable', 'flask'].includes(selectedItem.type)) {
+                    handleUseItem(selectedItem);
+                  }
+                }}
                 className="w-full bg-red-950/30 hover:bg-red-900 text-red-200 border border-red-900/50 hover:border-red-500 uppercase tracking-[0.2em] transition-all group"
                 style={{ padding: '2.5vmin', fontSize: '1.5vmin' }}
               >
                 <span className="group-hover:mr-[1vmin] transition-all">
-                  {selectedItem.type === 'consumable' ? 'Consume' : 'Equip'}
+                  {['consumable', 'flask'].includes(selectedItem.type) ? 'Consume' : 'Equip'}
                 </span>
                 <span className="opacity-0 group-hover:opacity-100 transition-all">➢</span>
               </button>

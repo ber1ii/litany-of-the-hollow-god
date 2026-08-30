@@ -2,17 +2,22 @@ import React, { useState, useRef, useMemo } from 'react';
 import { SKILL_TREE } from '../../data/SkillTreeData';
 import { SKILL_DATABASE } from '../../data/Skills';
 import type { PlayerStats } from '../../types/GameTypes';
+import { usePlayerStore } from '../../hooks/usePlayerStore';
 
 interface SkillTreeProps {
-  stats: PlayerStats;
+  stats?: PlayerStats;
   onClose: () => void;
-  onUnlock: (skillId: string, cost: number) => void;
+  onUnlock?: (skillId: string, cost: number) => void;
 }
 
-export const SkillTree: React.FC<SkillTreeProps> = ({ stats, onClose, onUnlock }) => {
+export const SkillTree: React.FC<SkillTreeProps> = ({ stats: propStats, onClose, onUnlock }) => {
+  const storeStats = usePlayerStore((state) => state.stats);
+  const purchaseSkill = usePlayerStore((state) => state.purchaseSkill);
+  const equipSkills = usePlayerStore((state) => state.equipSkills);
+  const stats = propStats || storeStats;
+
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  // --- PAN & ZOOM STATE ---
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
@@ -37,7 +42,33 @@ export const SkillTree: React.FC<SkillTreeProps> = ({ stats, onClose, onUnlock }
     setScale((prev) => Math.min(2, Math.max(0.5, prev + delta)));
   };
 
-  // --- LOGIC ---
+  // Skills cost XP. If the caller supplies onUnlock, that takes priority
+  // (matches the prop-overrides-store convention used elsewhere); otherwise
+  // this goes through the store's purchaseSkill action, which is the single
+  // source of truth for the affordability/prereq checks and the actual
+  // XP deduction — no more duplicating that logic here.
+  const handleUnlockSkill = (skillId: string, cost: number) => {
+    if (onUnlock) {
+      onUnlock(skillId, cost);
+    } else {
+      purchaseSkill(skillId);
+    }
+  };
+
+  // Unlocking a skill (above) only adds it to unlockedSkills — CombatHud
+  // reads equippedSkills to decide what shows up as a usable button in
+  // combat, so an unlocked skill still needs to be equipped separately
+  // before you can actually try it out.
+  const isEquipped = (skillId: string) => stats.equippedSkills.includes(skillId);
+
+  const handleToggleEquip = (skillId: string) => {
+    if (isEquipped(skillId)) {
+      equipSkills(stats.equippedSkills.filter((id) => id !== skillId));
+    } else {
+      equipSkills([...stats.equippedSkills, skillId]);
+    }
+  };
+
   const visibleNodes = useMemo(() => {
     // eslint-disable-next-line
     return Object.entries(SKILL_TREE).filter(([_, node]) => {
@@ -59,7 +90,6 @@ export const SkillTree: React.FC<SkillTreeProps> = ({ stats, onClose, onUnlock }
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/90 font-serif">
       <div className="w-[1000px] h-[700px] bg-neutral-950 border-2 border-neutral-800 flex shadow-2xl overflow-hidden relative">
-        {/* --- LEFT: CANVAS CONTAINER --- */}
         <div
           className="flex-1 relative bg-[#0a0a0a] overflow-hidden cursor-move"
           onMouseDown={handleMouseDown}
@@ -67,7 +97,6 @@ export const SkillTree: React.FC<SkillTreeProps> = ({ stats, onClose, onUnlock }
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
         >
-          {/* Grid Pattern Background (Moves with offset) */}
           <div
             className="absolute inset-0 opacity-20 pointer-events-none"
             style={{
@@ -77,7 +106,6 @@ export const SkillTree: React.FC<SkillTreeProps> = ({ stats, onClose, onUnlock }
             }}
           />
 
-          {/* CONTROLS */}
           <div className="absolute top-4 left-4 flex gap-2 z-10">
             <button
               onClick={() => handleZoom(0.1)}
@@ -106,18 +134,15 @@ export const SkillTree: React.FC<SkillTreeProps> = ({ stats, onClose, onUnlock }
             {stats.classId} Matrix
           </div>
 
-          {/* TRANSFORM LAYER */}
           <div
             className="absolute left-1/2 top-1/2 w-0 h-0"
             style={{ transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})` }}
           >
-            {/* CONNECTOR LINES */}
             <svg className="absolute overflow-visible -translate-x-[500px] -translate-y-[500px] w-[1000px] h-[1000px] pointer-events-none">
               {visibleNodes.map(([id, node]) =>
                 node.requires.map((reqId) => {
                   const parent = SKILL_TREE[reqId];
                   if (!parent) return null;
-                  // Assuming parent is also visible, otherwise line might point to nothing
                   const startX = 500 + parent.x * 150;
                   const startY = 500 + parent.y * 150;
                   const endX = 500 + node.x * 150;
@@ -137,7 +162,6 @@ export const SkillTree: React.FC<SkillTreeProps> = ({ stats, onClose, onUnlock }
               )}
             </svg>
 
-            {/* NODES */}
             {visibleNodes.map(([id, node]) => {
               const status = getStatus(id);
               const isSelected = selectedId === id;
@@ -167,7 +191,6 @@ export const SkillTree: React.FC<SkillTreeProps> = ({ stats, onClose, onUnlock }
                   `}
                 >
                   <div className="-rotate-45 flex items-center justify-center h-full text-lg">
-                    {/* Placeholder Icon */}
                     {status === 'locked' ? '🔒' : def.name[0]}
                   </div>
                 </button>
@@ -176,7 +199,6 @@ export const SkillTree: React.FC<SkillTreeProps> = ({ stats, onClose, onUnlock }
           </div>
         </div>
 
-        {/* --- RIGHT: DETAILS PANEL --- */}
         <div className="w-[320px] bg-neutral-900 border-l border-neutral-800 p-6 flex flex-col z-20 shadow-xl">
           <div className="mb-8 border-b border-neutral-800 pb-4">
             <div className="text-[10px] text-neutral-500 uppercase tracking-widest mb-1">
@@ -217,10 +239,23 @@ export const SkillTree: React.FC<SkillTreeProps> = ({ stats, onClose, onUnlock }
 
                       {status === 'available' && (
                         <button
-                          onClick={() => onUnlock(selectedId, cost)}
+                          onClick={() => handleUnlockSkill(selectedId, cost)}
                           className="w-full py-3 border border-amber-600 bg-amber-900/20 text-amber-500 hover:bg-amber-600 hover:text-white transition-all uppercase tracking-widest text-xs"
                         >
                           Unlock Memory
+                        </button>
+                      )}
+                      {status === 'unlocked' && (
+                        <button
+                          onClick={() => handleToggleEquip(selectedId)}
+                          className={`w-full py-3 border transition-all uppercase tracking-widest text-xs
+                            ${
+                              isEquipped(selectedId)
+                                ? 'border-green-600 bg-green-900/20 text-green-400 hover:bg-green-600 hover:text-white'
+                                : 'border-neutral-600 bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
+                            }`}
+                        >
+                          {isEquipped(selectedId) ? 'Equipped — Click to Unequip' : 'Equip'}
                         </button>
                       )}
                       {status === 'locked' && (

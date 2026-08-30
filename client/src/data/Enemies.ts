@@ -4,6 +4,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
   SKELETON: {
     id: 'SKELETON',
     name: 'Human Structure (Failed)',
+    hasMask: true,
     tier: 'common',
     aiBehavior: 'aggressive',
     baseStats: { attack: 10, defense: 2, speed: 3, maxHp: 80 },
@@ -49,12 +50,14 @@ export const ENEMIES: Record<string, EnemyDef> = {
       {
         id: 'head',
         name: 'Skull',
-        hp: 20,
-        maxHp: 20,
+        severChance: 1,
+        hp: 0,
+        maxHp: 0,
         isSevered: false,
         isVital: true,
         hitChanceMod: -25,
         damageMultiplier: 2.0,
+        hasHp: false,
       },
       {
         id: 'torso',
@@ -65,6 +68,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
         isVital: false,
         hitChanceMod: 0,
         damageMultiplier: 1.0,
+        isSeverable: false,
       },
       {
         id: 'l_arm',
@@ -112,6 +116,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
   ORC2: {
     id: 'ORC2',
     name: 'Ironhide Orc Guard',
+    hasMask: true,
     tier: 'common',
     aiBehavior: 'aggressive',
     baseStats: { attack: 16, defense: 6, speed: 4, maxHp: 130 },
@@ -172,12 +177,14 @@ export const ENEMIES: Record<string, EnemyDef> = {
       {
         id: 'head',
         name: 'Tusked Head',
-        hp: 35,
-        maxHp: 35,
+        severChance: 1,
+        hp: 0,
+        maxHp: 0,
         isSevered: false,
         isVital: true,
-        hitChanceMod: -20,
-        damageMultiplier: 1.8,
+        hitChanceMod: -25,
+        damageMultiplier: 1.0,
+        hasHp: false,
       },
       {
         id: 'torso',
@@ -188,6 +195,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
         isVital: false,
         hitChanceMod: 0,
         damageMultiplier: 1.0,
+        isSeverable: false,
       },
       {
         id: 'l_arm',
@@ -235,6 +243,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
   ORC3: {
     id: 'ORC3',
     name: 'Bloodrage Warlord',
+    hasMask: true,
     tier: 'elite',
     aiBehavior: 'aggressive',
     baseStats: { attack: 24, defense: 10, speed: 2, maxHp: 220 },
@@ -295,12 +304,14 @@ export const ENEMIES: Record<string, EnemyDef> = {
       {
         id: 'head',
         name: 'Helmeted Head',
-        hp: 60,
-        maxHp: 60,
+        severChance: 1,
+        hp: 0,
+        maxHp: 0,
         isSevered: false,
         isVital: true,
         hitChanceMod: -25,
-        damageMultiplier: 1.5,
+        damageMultiplier: 1.0,
+        hasHp: false,
       },
       {
         id: 'torso',
@@ -311,6 +322,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
         isVital: false,
         hitChanceMod: 0,
         damageMultiplier: 0.9,
+        isSeverable: false,
       },
       {
         id: 'l_arm',
@@ -421,12 +433,14 @@ export const ENEMIES: Record<string, EnemyDef> = {
       {
         id: 'head',
         name: 'Pale Head',
-        hp: 25,
-        maxHp: 25,
+        severChance: 1,
+        hp: 0,
+        maxHp: 0,
         isSevered: false,
         isVital: true,
-        hitChanceMod: -20,
+        hitChanceMod: -25,
         damageMultiplier: 2.0,
+        hasHp: false,
       },
       {
         id: 'torso',
@@ -437,6 +451,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
         isVital: false,
         hitChanceMod: 0,
         damageMultiplier: 1.0,
+        isSeverable: false,
       },
       {
         id: 'l_wing',
@@ -545,12 +560,14 @@ export const ENEMIES: Record<string, EnemyDef> = {
       {
         id: 'head',
         name: 'Crowned Head',
-        hp: 100,
-        maxHp: 100,
+        severChance: 0.5,
+        hp: 0,
+        maxHp: 0,
         isSevered: false,
         isVital: true,
-        hitChanceMod: -30,
-        damageMultiplier: 1.75,
+        hitChanceMod: -25,
+        damageMultiplier: 2.0,
+        hasHp: false,
       },
       {
         id: 'torso',
@@ -561,6 +578,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
         isVital: false,
         hitChanceMod: 0,
         damageMultiplier: 1.0,
+        isSeverable: false,
       },
       {
         id: 'l_wing',

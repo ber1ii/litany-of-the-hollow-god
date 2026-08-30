@@ -1,39 +1,12 @@
-import { getTileDef } from '../../data/TileRegistry';
+import { getTileDef, TILE_IDS } from '../../data/TileRegistry';
 
 export const TILE_SIZE = 1;
 
-export const TILE_TYPES = {
-  FLOOR_BASE: 0,
-  WALL_GENERIC: 1,
-
-  DOOR_CLOSED: 30,
-  DOOR_OPEN: 31,
-  DOOR_LOCKED_SILVER: 32,
-  KEY_SILVER: 6,
-
-  GOLD: 4,
-  SKELETON: 5,
-  ORC2: 14,
-  ORC3: 15,
-  VAMPIRE1: 16,
-  VAMPIRE_BOSS: 17,
-
-  // Custom Wall IDs
-  WALL_BASIC: 50,
-  WALL_LONG: 51,
-  ARCH_DARK: 52,
-  ARCH_DOUBLE: 53,
-  WALL_BARS: 54,
-  HUGE_BUILDING: 100,
-
-  TORCH_WALL: 7,
-  CANDLE: 8,
-  BONFIRE: 9,
-
-  // NEW ITEMS
-  POTION_RED: 20,
-  POTION_BLUE: 21,
-};
+// TILE_TYPES now just re-exports TileRegistry's TILE_IDS — this used to be
+// a second, hand-maintained copy of the same id list, and the two drifted
+// (ORC2/ORC3/VAMPIRE1/VAMPIRE_BOSS ended up on ids already used by floor
+// tiles in TileRegistry). TileRegistry.ts is the single source now.
+export const TILE_TYPES = TILE_IDS;
 
 const MAP_WIDTH = 30;
 const MAP_HEIGHT = 30;

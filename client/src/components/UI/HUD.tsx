@@ -1,12 +1,19 @@
 import React, { useMemo } from 'react';
 import type { PlayerStats } from '../../types/GameTypes';
+import { usePlayerStore } from '../../hooks/usePlayerStore';
 
 interface HUDProps {
-  stats: PlayerStats;
-  notifications: string[];
+  stats?: PlayerStats;
+  notifications?: string[];
 }
 
-export const HUD: React.FC<HUDProps> = ({ stats, notifications }) => {
+export const HUD: React.FC<HUDProps> = ({ stats: propStats, notifications: propNotifications }) => {
+  const storeStats = usePlayerStore((state) => state.stats);
+  const storeNotifications = usePlayerStore((state) => state.notifications) || [];
+
+  const stats = propStats || storeStats;
+  const notifications = propNotifications || storeNotifications;
+
   const madness = Math.max(0, Math.min(1, 1 - stats.sanity / stats.maxSanity));
 
   const jitterStyle = useMemo(() => {
@@ -61,7 +68,6 @@ export const HUD: React.FC<HUDProps> = ({ stats, notifications }) => {
       `}</style>
 
       {/* --- STATS PANEL --- */}
-      {/* Use vmin for positioning and padding so it scales with screen size */}
       <div
         className="absolute z-10 transition-all duration-700 backdrop-blur-[2px]"
         style={{

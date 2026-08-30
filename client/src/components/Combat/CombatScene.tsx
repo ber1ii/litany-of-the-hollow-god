@@ -6,7 +6,10 @@ import * as THREE from 'three';
 
 import type { PlayerStats } from '../../types/GameTypes';
 import { THEMES } from '../../data/LevelThemes';
-import { CombatLogic } from '../../managers/CombatLogic';
+import { CombatLogic, getSkillAnimation, tickStatusEffects } from '../../managers/CombatLogic';
+import type { PlayerCombatAction } from '../../managers/CombatLogic';
+import { SKILL_DATABASE } from '../../data/Skills';
+import { ITEM_REGISTRY } from '../../data/ItemRegistry';
 import { ENEMIES } from '../../data/Enemies';
 import { useCombatStore } from '../../hooks/useCombatStore';
 
@@ -16,6 +19,7 @@ import { CombatEnemy } from './CombatEnemy';
 import { CombatTorch } from './CombatTorch';
 import { SeveredLimbManager } from './SeveredLimbManager';
 import { CombatProjectile } from './CombatProjectile';
+import { usePlayerStore } from '../../hooks/usePlayerStore';
 
 interface CombatSceneProps {
   initialStats: PlayerStats;
@@ -43,15 +47,16 @@ export const CombatScene: React.FC<CombatSceneProps> = ({ initialStats, enemyId,
     setEnemyInstance,
     severLimb,
     resetCombat,
+    setSkillCooldown,
+    tickCooldowns,
   } = useCombatStore();
 
   // Local Visual State
-  const [playerAction, setPlayerAction] = useState<
-    'idle' | 'attack' | 'hurt' | 'pray' | 'die' | 'cast'
-  >('idle');
+  const [playerAction, setPlayerAction] = useState<PlayerCombatAction>('idle');
   const [enemyAction, setEnemyAction] = useState<'idle' | 'attack' | 'hurt' | 'death'>('idle');
   const [popups, setPopups] = useState<DamagePopup[]>([]);
   const [playerAttackVariant, setPlayerAttackVariant] = useState<1 | 2>(1);
+  const [playerEmphasis, setPlayerEmphasis] = useState<'none' | 'heavy' | 'plunge'>('none');
 
   // Ranged Projectile State
   const [activeProjectile, setActiveProjectile] = useState<{
@@ -65,6 +70,7 @@ export const CombatScene: React.FC<CombatSceneProps> = ({ initialStats, enemyId,
   const originalCamPos = useMemo(() => new THREE.Vector3(-0.5, 3, 6), []);
   const cameraTargetPos = useRef<THREE.Vector3>(originalCamPos.clone());
   const cameraLookAt = useRef<THREE.Vector3>(new THREE.Vector3(0, 0.8, 0));
+  const cameraLookAtTarget = useRef<THREE.Vector3>(new THREE.Vector3(0, 0.8, 0));
   const enemyTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   useEffect(() => {
@@ -81,16 +87,29 @@ export const CombatScene: React.FC<CombatSceneProps> = ({ initialStats, enemyId,
   // Shared coordinate memoized to prevent unnecessary re-renders in dependency arrays
   const enemyPosition = useMemo<[number, number, number]>(() => [1.5, -0.8, -1.5], []);
 
-  // Initialize Combat
+  // Initialize Combat — runs once per enemy/level, not on every stats update.
+  // initialStats is read via a ref and intentionally excluded from the
+  // dependency array: it's the `stats` object from usePlayerStore, and the
+  // store produces a NEW object reference on every mutation (e.g. modifyHp
+  // when the enemy attacks). Depending on it here meant this effect re-ran
+  // mid-fight, silently rebuilding enemyInstance from scratch via
+  // createEnemyInstance — full HP restored, all severed limbs undone,
+  // right after every enemy attack. Capturing initialStats once in a ref
+  // and keying the effect only on enemyId fixes it.
+  const initialStatsRef = useRef(initialStats);
+  useEffect(() => {
+    initialStatsRef.current = initialStats;
+  }, [initialStats]);
+
   useEffect(() => {
     const baseId = enemyId.split('-')[0].toUpperCase();
     const def = ENEMIES[baseId] || ENEMIES['SKELETON'];
 
-    setPlayerStats(initialStats);
+    setPlayerStats(initialStatsRef.current);
     setEnemyInstance(CombatLogic.createEnemyInstance(def, enemyId));
 
     return () => resetCombat();
-  }, [enemyId, initialStats, setEnemyInstance, setPlayerStats, resetCombat]);
+  }, [enemyId, setEnemyInstance, setPlayerStats, resetCombat]);
 
   // Environment
   const theme = THEMES[themeId] || THEMES['DUNGEON'];
@@ -118,27 +137,147 @@ export const CombatScene: React.FC<CombatSceneProps> = ({ initialStats, enemyId,
     const timer = setTimeout(() => {
       const [type, payload] = requestedAction.split(':');
 
-      if (type === 'skill') {
-        setPlayerAction(payload === 'pray' ? 'pray' : 'cast');
+      if (type === 'item') {
         setTurnState('player_acting');
+        const itemDef = ITEM_REGISTRY[payload];
+        const consumed = usePlayerStore.getState().consumeItem(payload);
+
+        if (consumed) {
+          spawnText('USED ITEM', [-1.5, 1.5, 2], '#3b82f6');
+          // Play the animation tied to what this item actually does —
+          // 'heal' for Vitality restoration (Crimson Flask -> Health.png),
+          // falling back to 'cast' for anything else (e.g. Mind restore).
+          // Previously nothing here ever called setPlayerAction, so no
+          // animation played at all regardless of item type.
+          setPlayerAction(itemDef?.effect?.type === 'heal' ? 'heal' : 'cast');
+          // Merge in the fresh hp/mp/etc from usePlayerStore, but keep
+          // this combat's own statusEffects — usePlayerStore's copy never
+          // receives combat-only buffs (e.g. Blood Surge's lifesteal), so
+          // overwriting wholesale here would silently erase them.
+          setPlayerStats((prev) => ({
+            ...usePlayerStore.getState().stats,
+            statusEffects: prev.statusEffects,
+          }));
+        } else {
+          spawnText('CANNOT USE', [-1.5, 1.5, 2], '#ef4444');
+        }
+        setRequestedAction(null);
+        setTimeout(() => {
+          setPlayerAction('idle');
+          // Tick status effects once per completed player turn, same
+          // choke point as the skill/attack path below.
+          setPlayerStats((prev) => ({
+            ...prev,
+            statusEffects: tickStatusEffects(prev.statusEffects),
+          }));
+          setTurnState('enemy_turn');
+        }, 900);
+        return;
+      }
+
+      if (type === 'skill') {
+        const [skillId, limbId] = payload.split('|');
+        const skillDef = SKILL_DATABASE[skillId];
+        if (!skillDef) {
+          setRequestedAction(null);
+          return;
+        }
+
+        const anim = getSkillAnimation(skillDef);
+        setPlayerAction(anim.action);
+        if (anim.variant) setPlayerAttackVariant(anim.variant);
+        setTurnState('player_acting');
+
+        if (skillId === 'heavy_attack' || skillId === 'plunging_strike') {
+          setPlayerEmphasis(skillId === 'heavy_attack' ? 'heavy' : 'plunge');
+          cameraTargetPos.current.set(-2.0, 1.0, 5.0);
+          cameraLookAtTarget.current.set(-1.5, 0.25, 2.0);
+        } else {
+          setPlayerEmphasis('none');
+        }
 
         setTimeout(() => {
           const pStats = { ...playerStats };
           const eStats = { ...enemyInstance };
-          const result = CombatLogic.executeSkill(payload, pStats, eStats);
+          const result = CombatLogic.executeSkill(skillId, pStats, eStats, pStats.level, limbId);
 
-          if (result.success) {
+          if (!result.success) {
+            spawnText(result.message, [-1.5, 1.5, 2], '#ef4444');
+            setPlayerAction('idle');
+            setPlayerEmphasis('none'); // add
+            setTurnState('player_turn');
+            setRequestedAction(null);
+            return;
+          }
+
+          // Skill succeeded — start its cooldown (if it has one). Nothing
+          // previously called setSkillCooldown anywhere, so cooldowns
+          // existed in the store but no skill ever actually triggered one.
+          if (skillDef.cooldown) {
+            setSkillCooldown(skillId, skillDef.cooldown);
+          }
+
+          if (result.attackResult) {
+            // Damage-dealing skill (quick_attack, heavy_attack, plunging_strike)
+            // — mirror the same visuals as a normal weapon attack.
+            const atk = result.attackResult;
+            shakeIntensity.current = atk.isCrit ? 0.3 : 0.1;
+
+            if (atk.hit) {
+              setEnemyAction('hurt');
+              spawnText(`${atk.damageDealt}`, [1.5, 1.5, -1.5], atk.isCrit ? '#ff0000' : '#ffffff');
+              if (atk.partSevered) {
+                spawnText('SEVERED!', [1.5, 2.0, -1.5], '#ef4444');
+                severLimb(limbId);
+              }
+            } else {
+              spawnText('MISS', [1.5, 1.5, -1.5], '#a3a3a3');
+            }
+
+            setEnemyInstance(atk.enemyState);
+            if (atk.isFatal) setEnemyAction('death');
+
+            const nextPlayer = { ...pStats };
+            if (result.cost) {
+              usePlayerStore.getState().modifyMp(-result.cost); // add: sync global store
+              nextPlayer.mp = usePlayerStore.getState().stats.mp; // add: read back clamped value
+            }
+            if (atk.lifestealHeal) {
+              usePlayerStore.getState().modifyHp(atk.lifestealHeal); // add: same gap exists for lifesteal HP
+              nextPlayer.hp = usePlayerStore.getState().stats.hp; // add
+              spawnText(`+${atk.lifestealHeal}`, [-1.5, 2.0, 2], '#dc2626');
+            }
+            setPlayerStats(nextPlayer);
+          } else {
+            // Utility skill (heal and/or buff)
             spawnText(result.message, [-1.5, 1.5, 2], '#4ade80');
+
+            let hpDelta = 0;
             if (result.healAmount) {
               spawnText(`+${result.healAmount}`, [-1.5, 2.0, 2], '#4ade80');
-              pStats.hp = Math.min(pStats.maxHp, pStats.hp + result.healAmount);
+              hpDelta += result.healAmount;
             }
-            if (result.cost) pStats.mp = Math.max(0, pStats.mp - result.cost);
+            if (result.hpCost) hpDelta -= result.hpCost;
 
-            setPlayerStats(pStats);
-            setEnemyInstance(eStats);
-            setRequestedAction(null);
+            if (result.cost) {
+              usePlayerStore.getState().modifyMp(-result.cost); // add
+              pStats.mp = usePlayerStore.getState().stats.mp; // add
+            }
+            if (result.buffApplied) {
+              pStats.statusEffects = [...(pStats.statusEffects || []), result.buffApplied];
+            }
+
+            if (hpDelta !== 0) {
+              usePlayerStore.getState().modifyHp(hpDelta); // <-- sync global store
+            }
+
+            setPlayerStats({
+              ...pStats,
+              hp: usePlayerStore.getState().stats.hp, // read back the clamped value
+            });
           }
+
+          setRequestedAction(null);
         }, 500);
       } else {
         const [attackId, limbId] = requestedAction.split('|');
@@ -166,6 +305,13 @@ export const CombatScene: React.FC<CombatSceneProps> = ({ initialStats, enemyId,
               spawnText('SEVERED!', [1.5, 2.0, -1.5], '#ef4444');
               severLimb(limbId);
             }
+            if (result.lifestealHeal) {
+              spawnText(`+${result.lifestealHeal}`, [-1.5, 2.0, 2], '#dc2626');
+              setPlayerStats({
+                ...playerStats,
+                hp: Math.min(playerStats.maxHp, playerStats.hp + result.lifestealHeal),
+              });
+            }
           } else {
             spawnText('MISS', [1.5, 1.5, -1.5], '#a3a3a3');
           }
@@ -188,6 +334,7 @@ export const CombatScene: React.FC<CombatSceneProps> = ({ initialStats, enemyId,
     setEnemyInstance,
     setRequestedAction,
     severLimb,
+    setSkillCooldown,
   ]);
 
   // Enemy Turn Execution
@@ -236,6 +383,7 @@ export const CombatScene: React.FC<CombatSceneProps> = ({ initialStats, enemyId,
 
         if (attackDef?.cameraZoom) {
           cameraTargetPos.current.set(-0.1, 2.2, 3.5);
+          cameraLookAtTarget.current.set(1.2, 1.0, -1.0);
         }
 
         const baseFrameTime = 80 / (attackDef?.speedMultiplier || 1.0);
@@ -264,11 +412,19 @@ export const CombatScene: React.FC<CombatSceneProps> = ({ initialStats, enemyId,
           const rawDmg = Math.round(effectiveAttack * (attackDef?.damageMod || 1.0));
           const finalDmg = Math.max(1, rawDmg - playerStats.defense);
 
-          setPlayerStats((prev) => {
-            const newHp = Math.max(0, prev.hp - finalDmg);
-            if (newHp <= 0) setPlayerAction('die');
-            return { ...prev, hp: newHp };
-          });
+          usePlayerStore.getState().modifyHp(-finalDmg);
+
+          const currentHp = usePlayerStore.getState().stats.hp;
+          // Merge fresh hp/mp/etc from usePlayerStore, but keep this
+          // combat's own statusEffects intact — see the item-branch
+          // comment above for why a wholesale overwrite here would
+          // silently erase active buffs like Blood Surge's lifesteal
+          // right after casting it, before the player gets a hit in.
+          setPlayerStats((prev) => ({
+            ...usePlayerStore.getState().stats,
+            statusEffects: prev.statusEffects,
+          }));
+          if (currentHp <= 0) setPlayerAction('die');
 
           setPlayerAction('hurt');
           spawnText(`-${finalDmg}`, [-1.5, 1.5, 2], '#ef4444');
@@ -292,20 +448,39 @@ export const CombatScene: React.FC<CombatSceneProps> = ({ initialStats, enemyId,
   const onPlayerAnimEnd = useCallback(() => {
     if (playerAction === 'die') return setTurnState('defeat');
     setPlayerAction('idle');
-    if (turnState === 'player_acting' && enemyInstance?.hp !== 0) setTurnState('enemy_turn');
-  }, [playerAction, turnState, enemyInstance, setTurnState]);
+    setPlayerEmphasis('none');
+    if (turnState === 'player_acting' && enemyInstance?.hp !== 0) {
+      // Tick status-effect durations once per completed player turn
+      // (skill and attack both end up here via CombatPlayer's onAnimEnd).
+      if (playerStats) {
+        setPlayerStats({
+          ...playerStats,
+          statusEffects: tickStatusEffects(playerStats.statusEffects),
+        });
+      }
+      setTurnState('enemy_turn');
+    }
+  }, [playerAction, turnState, enemyInstance, playerStats, setPlayerStats, setTurnState]);
 
   const onEnemyAnimEnd = useCallback(() => {
     if (enemyAction === 'death') return setTurnState('victory');
     setEnemyAction('idle');
-    if (turnState === 'enemy_acting') setTurnState('player_turn');
-  }, [enemyAction, turnState, setTurnState]);
+    if (turnState === 'enemy_acting') {
+      // Previously cooldowns only ticked down in the rare branch where
+      // the enemy has no attacks left to use (see useCombatStore's
+      // triggerEnemyTurn) — a normal attack turn never reached this, so
+      // skill cooldowns effectively never counted down in most fights.
+      tickCooldowns();
+      setTurnState('player_turn');
+    }
+  }, [enemyAction, turnState, setTurnState, tickCooldowns]);
 
   // --- Camera Reset Manager ---
   // Only reset the camera when returning to the player's turn AND all popups have vanished
   useEffect(() => {
     if (turnState === 'player_turn' && popups.length === 0) {
       cameraTargetPos.current.copy(originalCamPos);
+      cameraLookAtTarget.current.set(0, 0.8, 0);
     }
   }, [turnState, popups.length, originalCamPos]);
 
@@ -317,17 +492,10 @@ export const CombatScene: React.FC<CombatSceneProps> = ({ initialStats, enemyId,
       state.camera.position.x += (Math.random() - 0.5) * shakeIntensity.current;
       state.camera.position.y += (Math.random() - 0.5) * shakeIntensity.current;
       shakeIntensity.current = THREE.MathUtils.lerp(shakeIntensity.current, 0, 0.15);
-
-      if (shakeIntensity.current < 0.01) {
-        shakeIntensity.current = 0;
-      }
+      if (shakeIntensity.current < 0.01) shakeIntensity.current = 0;
     }
 
-    const targetLook = cameraTargetPos.current.equals(originalCamPos)
-      ? new THREE.Vector3(0, 0.8, 0)
-      : new THREE.Vector3(1.2, 1.0, -1.0);
-
-    cameraLookAt.current.lerp(targetLook, 0.15);
+    cameraLookAt.current.lerp(cameraLookAtTarget.current, 0.15); // replaced
     state.camera.lookAt(cameraLookAt.current);
   });
 
@@ -355,6 +523,7 @@ export const CombatScene: React.FC<CombatSceneProps> = ({ initialStats, enemyId,
             classId={playerStats.classId}
             action={playerAction}
             attackVariant={playerAttackVariant}
+            emphasis={playerEmphasis}
             onAnimEnd={onPlayerAnimEnd}
             position={[-1.5, -0.8, 2]}
           />

@@ -14,18 +14,76 @@ export interface TileDef {
   itemId?: string;
 }
 
+// Single source of truth for every tile id in the game. MapData.ts imports
+// this (re-exported as TILE_TYPES) instead of maintaining its own parallel
+// numbering — previously the two were hand-kept in sync, and drifted:
+// ORC2/ORC3/VAMPIRE1/VAMPIRE_BOSS ended up reusing ids 14-17, which were
+// already floor tiles here (dirt_patch_1, stone_floor_2, ...). Any new tile
+// id should be added ONLY here.
+export const TILE_IDS = {
+  // --- SPECIAL / DEFAULTS ---
+  FLOOR_BASE: 0,
+  BASE_FLOOR: 2,
+
+  // --- ITEMS & MOBS ---
+  GOLD: 4,
+  SKELETON: 5,
+  KEY_SILVER: 6,
+  POTION_RED: 20,
+  POTION_BLUE: 21,
+
+  // --- ENEMY SPAWN MARKERS ---
+  // Previously 14-17, which collided with the floor tile ids below.
+  // Moved to a dedicated unused range.
+  ORC2: 40,
+  ORC3: 41,
+  VAMPIRE1: 42,
+  VAMPIRE_BOSS: 43,
+
+  // --- PROPS ---
+  TORCH_WALL: 7,
+  CANDLE: 8,
+  BONFIRE: 9,
+
+  // --- FLOORS ---
+  STONE_FLOOR_1: 10,
+  COBBLESTONE_1: 11,
+  COBBLESTONE_2: 12,
+  COBBLESTONE_3: 13,
+  DIRT_PATCH_1: 14,
+  STONE_FLOOR_2: 15,
+  COBBLESTONE_4: 16,
+  COBBLESTONE_5: 17,
+
+  // --- DOORS ---
+  DOOR_CLOSED: 30,
+  DOOR_OPEN: 31,
+  DOOR_LOCKED_SILVER: 32,
+
+  // --- WALLS ---
+  WALL_GENERIC: 1,
+  HUGE_BUILDING: 100,
+  WALL_LONG: 51,
+  ARCH_DOUBLE: 53,
+  ARCH_SINGLE: 55,
+  WALL_BASIC: 50,
+  ARCH_DARK: 52,
+  WALL_BARS: 54,
+  WALL_PILLAR_1: 60,
+} as const;
+
 export const TILE_REGISTRY: Record<number, TileDef> = {
   // --- SPECIAL / DEFAULTS ---
-  0: {
-    id: 0,
+  [TILE_IDS.FLOOR_BASE]: {
+    id: TILE_IDS.FLOOR_BASE,
     name: 'standard_floor',
     type: 'floor',
     atlasPos: { col: 46, row: 13 },
     size: { w: 1, h: 1 },
     solid: false,
   },
-  2: {
-    id: 2,
+  [TILE_IDS.BASE_FLOOR]: {
+    id: TILE_IDS.BASE_FLOOR,
     name: 'base_floor',
     type: 'floor',
     atlasPos: { col: 46, row: 13 },
@@ -34,24 +92,24 @@ export const TILE_REGISTRY: Record<number, TileDef> = {
   },
 
   // --- ITEMS & MOBS ---
-  4: {
-    id: 4,
+  [TILE_IDS.GOLD]: {
+    id: TILE_IDS.GOLD,
     name: 'gold',
     type: 'item',
     atlasPos: { col: 0, row: 0 },
     size: { w: 1, h: 1 },
     solid: false,
   },
-  5: {
-    id: 5,
+  [TILE_IDS.SKELETON]: {
+    id: TILE_IDS.SKELETON,
     name: 'skeleton',
     type: 'item',
     atlasPos: { col: 0, row: 0 },
     size: { w: 1, h: 1 },
     solid: false,
   },
-  20: {
-    id: 20,
+  [TILE_IDS.POTION_RED]: {
+    id: TILE_IDS.POTION_RED,
     name: 'potion_red',
     type: 'item',
     atlasPos: { col: 0, row: 0 },
@@ -59,8 +117,8 @@ export const TILE_REGISTRY: Record<number, TileDef> = {
     solid: false,
     itemId: 'potion_red',
   },
-  21: {
-    id: 21,
+  [TILE_IDS.POTION_BLUE]: {
+    id: TILE_IDS.POTION_BLUE,
     name: 'potion_blue',
     type: 'item',
     atlasPos: { col: 0, row: 0 },
@@ -68,8 +126,8 @@ export const TILE_REGISTRY: Record<number, TileDef> = {
     solid: false,
     itemId: 'potion_blue',
   },
-  6: {
-    id: 6,
+  [TILE_IDS.KEY_SILVER]: {
+    id: TILE_IDS.KEY_SILVER,
     name: 'key_silver',
     type: 'item',
     atlasPos: { col: 0, row: 0 },
@@ -78,8 +136,45 @@ export const TILE_REGISTRY: Record<number, TileDef> = {
     itemId: 'silver_key',
   },
 
-  9: {
-    id: 9,
+  // --- ENEMY SPAWN MARKERS ---
+  // Read by LevelBuilder to place enemies; not pickups (no itemId), so the
+  // generic item-pickup branch in Game.tsx's handleInteract correctly
+  // ignores them, same as SKELETON above.
+  [TILE_IDS.ORC2]: {
+    id: TILE_IDS.ORC2,
+    name: 'orc2_spawn',
+    type: 'item',
+    atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: false,
+  },
+  [TILE_IDS.ORC3]: {
+    id: TILE_IDS.ORC3,
+    name: 'orc3_spawn',
+    type: 'item',
+    atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: false,
+  },
+  [TILE_IDS.VAMPIRE1]: {
+    id: TILE_IDS.VAMPIRE1,
+    name: 'vampire1_spawn',
+    type: 'item',
+    atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: false,
+  },
+  [TILE_IDS.VAMPIRE_BOSS]: {
+    id: TILE_IDS.VAMPIRE_BOSS,
+    name: 'vampire_boss_spawn',
+    type: 'item',
+    atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: false,
+  },
+
+  [TILE_IDS.BONFIRE]: {
+    id: TILE_IDS.BONFIRE,
     name: 'bonfire',
     type: 'prop',
     atlasPos: { col: 46, row: 13 },
@@ -88,57 +183,57 @@ export const TILE_REGISTRY: Record<number, TileDef> = {
   },
 
   // --- FLOORS ---
-  10: {
-    id: 10,
+  [TILE_IDS.STONE_FLOOR_1]: {
+    id: TILE_IDS.STONE_FLOOR_1,
     name: 'stone_floor_1',
     type: 'floor',
     atlasPos: { col: 46, row: 13 },
     size: { w: 2, h: 3 },
   },
-  11: {
-    id: 11,
+  [TILE_IDS.COBBLESTONE_1]: {
+    id: TILE_IDS.COBBLESTONE_1,
     name: 'cobblestone_1',
     type: 'floor',
     atlasPos: { col: 46, row: 17 },
     size: { w: 2, h: 2 },
   },
-  12: {
-    id: 12,
+  [TILE_IDS.COBBLESTONE_2]: {
+    id: TILE_IDS.COBBLESTONE_2,
     name: 'cobblestone_2',
     type: 'floor',
     atlasPos: { col: 46, row: 20 },
     size: { w: 2, h: 2 },
   },
-  13: {
-    id: 13,
+  [TILE_IDS.COBBLESTONE_3]: {
+    id: TILE_IDS.COBBLESTONE_3,
     name: 'cobblestone_3',
     type: 'floor',
     atlasPos: { col: 46, row: 23 },
     size: { w: 2, h: 2 },
   },
-  14: {
-    id: 14,
+  [TILE_IDS.DIRT_PATCH_1]: {
+    id: TILE_IDS.DIRT_PATCH_1,
     name: 'dirt_patch_1',
     type: 'floor',
     atlasPos: { col: 46, row: 26 },
     size: { w: 4, h: 4 },
   },
-  15: {
-    id: 15,
+  [TILE_IDS.STONE_FLOOR_2]: {
+    id: TILE_IDS.STONE_FLOOR_2,
     name: 'stone_floor_2',
     type: 'floor',
     atlasPos: { col: 49, row: 13 },
     size: { w: 2, h: 3 },
   },
-  16: {
-    id: 16,
+  [TILE_IDS.COBBLESTONE_4]: {
+    id: TILE_IDS.COBBLESTONE_4,
     name: 'cobblestone_4',
     type: 'floor',
     atlasPos: { col: 49, row: 17 },
     size: { w: 2, h: 2 },
   },
-  17: {
-    id: 17,
+  [TILE_IDS.COBBLESTONE_5]: {
+    id: TILE_IDS.COBBLESTONE_5,
     name: 'cobblestone_5',
     type: 'floor',
     atlasPos: { col: 49, row: 20 },
@@ -146,25 +241,25 @@ export const TILE_REGISTRY: Record<number, TileDef> = {
   },
 
   // --- DOORS ---
-  30: {
-    id: 30,
+  [TILE_IDS.DOOR_CLOSED]: {
+    id: TILE_IDS.DOOR_CLOSED,
     name: 'door_closed',
     type: 'wall',
     atlasPos: { col: 0, row: 0 },
     size: { w: 1, h: 1 },
     solid: true,
   },
-  31: {
-    id: 31,
+  [TILE_IDS.DOOR_OPEN]: {
+    id: TILE_IDS.DOOR_OPEN,
     name: 'door_open',
     type: 'floor',
-    // FIX: Match standard floor (46, 13) instead of (0, 0)
+    // Matches standard floor (46, 13) instead of (0, 0)
     atlasPos: { col: 46, row: 13 },
     size: { w: 1, h: 1 },
     solid: false,
   },
-  32: {
-    id: 32,
+  [TILE_IDS.DOOR_LOCKED_SILVER]: {
+    id: TILE_IDS.DOOR_LOCKED_SILVER,
     name: 'door_locked_silver',
     type: 'wall',
     atlasPos: { col: 0, row: 0 },
@@ -173,72 +268,72 @@ export const TILE_REGISTRY: Record<number, TileDef> = {
   },
 
   // --- WALLS ---
-  1: {
-    id: 1,
+  [TILE_IDS.WALL_GENERIC]: {
+    id: TILE_IDS.WALL_GENERIC,
     name: 'wall_generic',
     type: 'wall',
     atlasPos: { col: 25, row: 7 },
     size: { w: 1, h: 5 },
     solid: true,
   },
-  100: {
-    id: 100,
+  [TILE_IDS.HUGE_BUILDING]: {
+    id: TILE_IDS.HUGE_BUILDING,
     name: 'huge_building',
     type: 'wall',
     atlasPos: { col: 1, row: 2 },
     size: { w: 18, h: 10 },
     solid: true,
   },
-  51: {
-    id: 51,
+  [TILE_IDS.WALL_LONG]: {
+    id: TILE_IDS.WALL_LONG,
     name: 'long_wall_1',
     type: 'wall',
     atlasPos: { col: 3, row: 12 },
     size: { w: 14, h: 5 },
     solid: true,
   },
-  53: {
-    id: 53,
+  [TILE_IDS.ARCH_DOUBLE]: {
+    id: TILE_IDS.ARCH_DOUBLE,
     name: 'double_archway',
     type: 'wall',
     atlasPos: { col: 17, row: 1 },
     size: { w: 5, h: 11 },
     solid: true,
   },
-  55: {
-    id: 55,
+  [TILE_IDS.ARCH_SINGLE]: {
+    id: TILE_IDS.ARCH_SINGLE,
     name: 'single_archway',
     type: 'wall',
     atlasPos: { col: 25, row: 1 },
     size: { w: 5, h: 6 },
     solid: true,
   },
-  50: {
-    id: 50,
+  [TILE_IDS.WALL_BASIC]: {
+    id: TILE_IDS.WALL_BASIC,
     name: 'basic_wall_1',
     type: 'wall',
     atlasPos: { col: 19, row: 21 },
     size: { w: 4, h: 3 },
     solid: true,
   },
-  52: {
-    id: 52,
+  [TILE_IDS.ARCH_DARK]: {
+    id: TILE_IDS.ARCH_DARK,
     name: 'dark_archway',
     type: 'wall',
     atlasPos: { col: 40, row: 0 },
     size: { w: 5, h: 6 },
     solid: true,
   },
-  54: {
-    id: 54,
+  [TILE_IDS.WALL_BARS]: {
+    id: TILE_IDS.WALL_BARS,
     name: 'wall_bars',
     type: 'wall',
     atlasPos: { col: 16, row: 13 },
     size: { w: 5, h: 3 },
     solid: true,
   },
-  60: {
-    id: 60,
+  [TILE_IDS.WALL_PILLAR_1]: {
+    id: TILE_IDS.WALL_PILLAR_1,
     name: 'wall_pillar_1',
     type: 'wall',
     atlasPos: { col: 1, row: 21 },
@@ -246,16 +341,16 @@ export const TILE_REGISTRY: Record<number, TileDef> = {
     solid: true,
   },
   // Torch/Candle
-  7: {
-    id: 7,
+  [TILE_IDS.TORCH_WALL]: {
+    id: TILE_IDS.TORCH_WALL,
     name: 'torch_wall',
     type: 'wall',
     atlasPos: { col: 25, row: 7 }, // Generic wall background
     size: { w: 1, h: 5 },
     solid: true,
   },
-  8: {
-    id: 8,
+  [TILE_IDS.CANDLE]: {
+    id: TILE_IDS.CANDLE,
     name: 'candle',
     type: 'prop',
     atlasPos: { col: 0, row: 0 },
@@ -265,5 +360,5 @@ export const TILE_REGISTRY: Record<number, TileDef> = {
 };
 
 export const getTileDef = (id: number): TileDef => {
-  return TILE_REGISTRY[id] || TILE_REGISTRY[1];
+  return TILE_REGISTRY[id] || TILE_REGISTRY[TILE_IDS.WALL_GENERIC];
 };
