@@ -1,7 +1,6 @@
 import { useTexture } from '@react-three/drei';
 // Import the preloaders
-import { preloadPlayerAssets } from '../components/Combat/CombatPlayer';
-import { preloadEnemyAssets } from '../components/Combat/CombatEnemy';
+import { preloadEnemyAssets, preloadPlayerAssets } from './combatAssetPreload';
 
 const FRAME_COUNTS: Record<string, number> = {
   walk: 8,

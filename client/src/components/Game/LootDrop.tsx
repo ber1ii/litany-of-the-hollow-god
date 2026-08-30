@@ -33,24 +33,25 @@ export const LootDrop: React.FC<LootDropProps> = ({ x, z, item }) => {
   }, [rawTexture, columns, rows]);
 
   const groupRef = useRef<THREE.Group>(null);
+  const materialRef = useRef<THREE.MeshStandardMaterial>(null);
 
   useFrame((state) => {
-    if (!groupRef.current) return;
     const t = state.clock.getElapsedTime();
 
     // Bobbing Motion
-    groupRef.current.position.y = 0.15 + Math.sin(t * 3) * 0.03;
+    if (groupRef.current) {
+      groupRef.current.position.y = 0.15 + Math.sin(t * 3) * 0.03;
+    }
 
-    // Sprite Animation
-    if (frames > 1) {
+    // Sprite Animation accessed via material ref to avoid render-scope mutations
+    if (frames > 1 && materialRef.current?.map) {
       const currentFrame = Math.floor(t * 10) % frames;
       const col = currentFrame % columns;
       const row = Math.floor(currentFrame / columns);
 
-      // eslint-disable-next-line
-      texture.offset.x = col / columns;
-
-      texture.offset.y = 1 - (row + 1) / rows;
+      const map = materialRef.current.map;
+      map.offset.x = col / columns;
+      map.offset.y = 1 - (row + 1) / rows;
     }
   });
 
@@ -61,13 +62,13 @@ export const LootDrop: React.FC<LootDropProps> = ({ x, z, item }) => {
           {/* Size: 0.25 (approx 1/4 tile) */}
           <planeGeometry args={[0.25, 0.25]} />
 
-          {/* FIX: Use these material settings for crisp pixel art */}
           <meshStandardMaterial
+            ref={materialRef}
             map={texture}
             transparent
             alphaTest={0.5}
-            toneMapped={false} // <--- Critical: Prevents "washed out" look
-            color="white" // <--- Critical: Ensures true texture colors
+            toneMapped={false} // Prevents "washed out" look
+            color="white" // Ensures true texture colors
             roughness={1}
           />
         </mesh>

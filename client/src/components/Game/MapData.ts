@@ -13,6 +13,10 @@ export const TILE_TYPES = {
 
   GOLD: 4,
   SKELETON: 5,
+  ORC2: 14,
+  ORC3: 15,
+  VAMPIRE1: 16,
+  VAMPIRE_BOSS: 17,
 
   // Custom Wall IDs
   WALL_BASIC: 50,
@@ -26,7 +30,7 @@ export const TILE_TYPES = {
   CANDLE: 8,
   BONFIRE: 9,
 
-  // NEW ITEMS (Kept here for ID reference, but not placed in map)
+  // NEW ITEMS
   POTION_RED: 20,
   POTION_BLUE: 21,
 };
@@ -70,10 +74,9 @@ map[12][22] = TILE_TYPES.DOOR_LOCKED_SILVER;
 
 // Room 1 (Bottom Left): Gold
 map[25][5] = TILE_TYPES.GOLD;
-// Removed Potion Pickups
 
-// Room 2 (Bottom Right): Skeleton & Key
-map[22][19] = TILE_TYPES.SKELETON;
+// Room 2 (Bottom Right): Vampire 1 & Key
+map[22][19] = TILE_TYPES.VAMPIRE1;
 map[22][26] = TILE_TYPES.KEY_SILVER;
 
 // Props

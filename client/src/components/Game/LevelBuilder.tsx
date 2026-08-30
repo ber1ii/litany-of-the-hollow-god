@@ -14,14 +14,27 @@ import { Candle } from './Candle';
 import { Bonfire } from './Bonfire';
 import { LootDrop } from './LootDrop';
 import { ITEM_REGISTRY } from '../../data/ItemRegistry';
+import type { MonsterType } from '../../types/GameTypes';
 
 // --- STATIC HELPERS ---
+
+const ENEMY_TILE_CONFIG: Record<number, { type: MonsterType; prefix: string }> = {
+  [TILE_TYPES.SKELETON]: { type: 'skeleton', prefix: 'skeleton' },
+  [TILE_TYPES.ORC2]: { type: 'orc2', prefix: 'orc2' },
+  [TILE_TYPES.ORC3]: { type: 'orc3', prefix: 'orc3' },
+  [TILE_TYPES.VAMPIRE1]: { type: 'vampire1', prefix: 'vampire1' },
+  [TILE_TYPES.VAMPIRE_BOSS]: { type: 'vampire_boss', prefix: 'vampire_boss' },
+};
 
 const isStructure = (v: number) => {
   if (
     v === TILE_TYPES.KEY_SILVER ||
     v === TILE_TYPES.GOLD ||
     v === TILE_TYPES.SKELETON ||
+    v === TILE_TYPES.ORC2 ||
+    v === TILE_TYPES.ORC3 ||
+    v === TILE_TYPES.VAMPIRE1 ||
+    v === TILE_TYPES.VAMPIRE_BOSS ||
     v === TILE_TYPES.POTION_RED ||
     v === TILE_TYPES.POTION_BLUE ||
     v === TILE_TYPES.BONFIRE
@@ -387,20 +400,24 @@ export const LevelBuilder: React.FC<LevelBuilderProps> = ({
         }
 
         // --- 3. ENEMIES ---
-        if (tile === TILE_TYPES.SKELETON && !deadEnemyIds.has(`skeleton-${x}-${z}`)) {
-          list.push(
-            <group key={`mon-${x}-${z}`} position={[0, 0.01, 0]}>
-              <Monster
-                id={`skeleton-${x}-${z}`}
-                type="skeleton"
-                startX={x}
-                startZ={z}
-                playerPos={playerPos.current}
-                onCombatStart={() => onCombatStart(`skeleton-${x}-${z}`)}
-                enemyTracker={enemyTracker}
-              />
-            </group>
-          );
+        const enemyConfig = ENEMY_TILE_CONFIG[tile];
+        if (enemyConfig) {
+          const enemyKey = `${enemyConfig.prefix}-${x}-${z}`;
+          if (!deadEnemyIds.has(enemyKey)) {
+            list.push(
+              <group key={`mon-${x}-${z}`} position={[0, 0.01, 0]}>
+                <Monster
+                  id={enemyKey}
+                  type={enemyConfig.type}
+                  startX={x}
+                  startZ={z}
+                  playerPos={playerPos.current}
+                  onCombatStart={() => onCombatStart(enemyKey)}
+                  enemyTracker={enemyTracker}
+                />
+              </group>
+            );
+          }
         }
 
         // --- 4. PROPS ---

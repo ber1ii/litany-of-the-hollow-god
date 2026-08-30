@@ -17,12 +17,14 @@ export const CombatTransitionCamera: React.FC<CombatTransitionCameraProps> = ({ 
       targetPos.current.z + 2.0
     );
 
-    state.camera.position.lerp(desiredCamPos, 0.15);
+    // Reduced from 0.15 to 0.02 for a slow, creeping camera movement
+    state.camera.position.lerp(desiredCamPos, 0.02);
 
     state.camera.lookAt(targetPos.current);
 
     if (state.camera instanceof THREE.PerspectiveCamera) {
-      state.camera.fov = THREE.MathUtils.lerp(state.camera.fov, 30, 0.1);
+      // Reduced from 0.1 to 0.02 for a slow FOV zoom
+      state.camera.fov = THREE.MathUtils.lerp(state.camera.fov, 30, 0.02);
       state.camera.updateProjectionMatrix();
     }
   });

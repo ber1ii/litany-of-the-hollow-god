@@ -43,36 +43,7 @@ export const SKILL_DATABASE: Record<string, SkillDef> = {
     color: 'text-blue-400',
   },
 
-  // Mage Starter
-  flame_of_frenzy: {
-    id: 'flame_of_frenzy',
-    name: 'Flame of Frenzy',
-    type: 'magic',
-    description: 'Unleash chaotic fire upon the enemy.',
-    damageScale: 3.0,
-    cost: 35,
-    animation: 'cast',
-    color: 'text-orange-500',
-  },
-
-  // Assassin Starter
-  death_mark: {
-    id: 'death_mark',
-    name: 'Death Mark',
-    type: 'utility',
-    description: 'Expose enemy weakness. Next hit deals massive damage.',
-    cost: 25,
-    buff: {
-      type: 'vulnerable',
-      name: 'Marked for Death',
-      duration: 2,
-      value: 100, // 100% extra damage taken
-    },
-    animation: 'cast',
-    color: 'text-purple-500',
-  },
-
-  // Test branches
+  // Knight Branch
   holy_strike: {
     id: 'holy_strike',
     name: 'Holy Strike',
@@ -82,25 +53,5 @@ export const SKILL_DATABASE: Record<string, SkillDef> = {
     cost: 20,
     animation: 'attack2',
     color: 'text-yellow-200',
-  },
-  ember: {
-    id: 'ember',
-    name: 'Ember',
-    type: 'magic',
-    description: 'A lingering flame that burns the target.',
-    damageScale: 1.2,
-    cost: 10,
-    animation: 'cast',
-    color: 'text-orange-400',
-  },
-  toxic_blade: {
-    id: 'toxic_blade',
-    name: 'Toxic Blade',
-    type: 'physical',
-    description: 'Coats weapon in rot. Ignores some defense.',
-    damageScale: 1.4,
-    cost: 15,
-    animation: 'attack1',
-    color: 'text-green-600',
   },
 };

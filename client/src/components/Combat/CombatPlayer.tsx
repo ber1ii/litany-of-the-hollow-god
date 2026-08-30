@@ -4,8 +4,6 @@ import * as THREE from 'three';
 import { CombatUnit } from './CombatUnit';
 import type { ClassId } from '../../data/Classes';
 import { KNIGHT_SPRITES } from '../../data/sprites/KnightSprites';
-import { MAGE_SPRITES } from '../../data/sprites/MageSprites';
-import { ASSASSIN_SPRITES } from '../../data/sprites/AssassinSprites';
 
 interface CombatPlayerProps {
   classId: ClassId;
@@ -17,8 +15,6 @@ interface CombatPlayerProps {
 
 const REGISTRY = {
   KNIGHT: KNIGHT_SPRITES,
-  MAGE: MAGE_SPRITES,
-  ASSASSIN: ASSASSIN_SPRITES,
 };
 
 export const CombatPlayer: React.FC<CombatPlayerProps> = ({
@@ -107,14 +103,4 @@ export const CombatPlayer: React.FC<CombatPlayerProps> = ({
       height={2.1}
     />
   );
-};
-
-// --- PRELOADER ---
-export const preloadPlayerAssets = () => {
-  const allUrls = new Set<string>();
-  Object.values(REGISTRY).forEach((spriteDef) => {
-    Object.values(spriteDef).forEach((url) => allUrls.add(url));
-  });
-  useTexture.preload(Array.from(allUrls));
-  console.log('Player Combat Assets Preloaded.');
 };

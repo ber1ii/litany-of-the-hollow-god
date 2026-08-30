@@ -4,34 +4,23 @@ import { useFrame } from '@react-three/fiber';
 import { motion } from 'framer-motion';
 import * as THREE from 'three';
 
-import type { PlayerStats, CombatEnemyInstance } from '../../types/GameTypes';
+import type { PlayerStats } from '../../types/GameTypes';
 import { THEMES } from '../../data/LevelThemes';
 import { CombatLogic } from '../../managers/CombatLogic';
 import { ENEMIES } from '../../data/Enemies';
+import { useCombatStore } from '../../hooks/useCombatStore';
 
 // Components
 import { CombatPlayer } from './CombatPlayer';
 import { CombatEnemy } from './CombatEnemy';
 import { CombatTorch } from './CombatTorch';
+import { SeveredLimbManager } from './SeveredLimbManager';
+import { CombatProjectile } from './CombatProjectile';
 
 interface CombatSceneProps {
   initialStats: PlayerStats;
   enemyId: string;
   themeId: string;
-  combatPhase:
-    | 'player_turn'
-    | 'player_acting'
-    | 'enemy_turn'
-    | 'enemy_acting'
-    | 'victory'
-    | 'defeat';
-  setCombatPhase: (
-    phase: 'player_turn' | 'player_acting' | 'enemy_turn' | 'enemy_acting' | 'victory' | 'defeat'
-  ) => void;
-  onEnemyUpdate: (enemy: CombatEnemyInstance) => void;
-  requestedAction: string | null;
-  setRequestedAction: (action: string | null) => void;
-  updatePlayerStats: (stats: PlayerStats) => void;
 }
 
 interface DamagePopup {
@@ -41,18 +30,22 @@ interface DamagePopup {
   color: string;
 }
 
-export const CombatScene: React.FC<CombatSceneProps> = ({
-  initialStats,
-  enemyId,
-  themeId,
-  combatPhase,
-  setCombatPhase,
-  onEnemyUpdate,
-  requestedAction,
-  setRequestedAction,
-  updatePlayerStats,
-}) => {
-  // State
+export const CombatScene: React.FC<CombatSceneProps> = ({ initialStats, enemyId, themeId }) => {
+  // Store Subscriptions
+  const {
+    turnState,
+    setTurnState,
+    requestedAction,
+    setRequestedAction,
+    playerStats,
+    setPlayerStats,
+    enemyInstance,
+    setEnemyInstance,
+    severLimb,
+    resetCombat,
+  } = useCombatStore();
+
+  // Local Visual State
   const [playerAction, setPlayerAction] = useState<
     'idle' | 'attack' | 'hurt' | 'pray' | 'die' | 'cast'
   >('idle');
@@ -60,24 +53,48 @@ export const CombatScene: React.FC<CombatSceneProps> = ({
   const [popups, setPopups] = useState<DamagePopup[]>([]);
   const [playerAttackVariant, setPlayerAttackVariant] = useState<1 | 2>(1);
 
-  // Logic Refs
-  const enemyRef = useRef<CombatEnemyInstance | null>(null);
-  const playerRef = useRef<PlayerStats>(initialStats);
+  // Ranged Projectile State
+  const [activeProjectile, setActiveProjectile] = useState<{
+    type: string;
+    startPos: [number, number, number];
+    targetPos: [number, number, number];
+  } | null>(null);
+
+  // Dynamic Camera Refs
   const shakeIntensity = useRef(0);
   const originalCamPos = useMemo(() => new THREE.Vector3(-0.5, 3, 6), []);
+  const cameraTargetPos = useRef<THREE.Vector3>(originalCamPos.clone());
+  const cameraLookAt = useRef<THREE.Vector3>(new THREE.Vector3(0, 0.8, 0));
+  const enemyTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
-  // Initialize Enemy
+  useEffect(() => {
+    // Capture the ref's current array into a local variable
+    const activeTimers = enemyTimers.current;
+
+    return () => {
+      activeTimers.forEach(clearTimeout);
+      // Empty the array so it doesn't infinitely grow across a long session
+      activeTimers.length = 0;
+    };
+  }, []);
+
+  // Shared coordinate memoized to prevent unnecessary re-renders in dependency arrays
+  const enemyPosition = useMemo<[number, number, number]>(() => [1.5, -0.8, -1.5], []);
+
+  // Initialize Combat
   useEffect(() => {
     const baseId = enemyId.split('-')[0].toUpperCase();
     const def = ENEMIES[baseId] || ENEMIES['SKELETON'];
-    enemyRef.current = CombatLogic.createEnemyInstance(def, enemyId);
-    onEnemyUpdate(enemyRef.current);
-  }, [enemyId]);
 
-  // Theme Textures
+    setPlayerStats(initialStats);
+    setEnemyInstance(CombatLogic.createEnemyInstance(def, enemyId));
+
+    return () => resetCombat();
+  }, [enemyId, initialStats, setEnemyInstance, setPlayerStats, resetCombat]);
+
+  // Environment
   const theme = THEMES[themeId] || THEMES['DUNGEON'];
   const envTextures = useTexture({ wall: theme.combatWall, floor: theme.combatFloor });
-
   useMemo(() => {
     [envTextures.wall, envTextures.floor].forEach((t) => {
       if (!t) return;
@@ -88,69 +105,51 @@ export const CombatScene: React.FC<CombatSceneProps> = ({
     });
   }, [envTextures]);
 
-  // -- Helpers --
   const spawnText = (text: string, pos: [number, number, number], color: string) => {
-    const id = Date.now() + Math.random();
-    setPopups((prev) => [...prev, { id, text, position: pos, color }]);
+    setPopups((prev) => [...prev, { id: Date.now() + Math.random(), text, position: pos, color }]);
   };
   const removePopup = (id: number) => setPopups((prev) => prev.filter((p) => p.id !== id));
 
-  // -- Turn Logic --
+  // --- Core Combat Logic ---
+  // Player Turn Execution
   useEffect(() => {
-    if (!requestedAction || combatPhase !== 'player_turn' || !enemyRef.current) return;
+    if (!requestedAction || turnState !== 'player_turn' || !enemyInstance || !playerStats) return;
 
-    // FIX: Wrap in setTimeout(0) to prevent synchronous setState warning in useEffect
     const timer = setTimeout(() => {
-      const [type, payload] = requestedAction.split(':'); // skill:pray or attack_id|limb_id
+      const [type, payload] = requestedAction.split(':');
 
-      // 1. SKILLS
       if (type === 'skill') {
-        const skillId = payload;
-        setPlayerAction(skillId === 'pray' ? 'pray' : 'cast');
-        setCombatPhase('player_acting');
+        setPlayerAction(payload === 'pray' ? 'pray' : 'cast');
+        setTurnState('player_acting');
 
         setTimeout(() => {
-          // Fix: passed enemyRef.current! (CombatLogic updated to accept 3 args)
-          const result = CombatLogic.executeSkill(skillId, playerRef.current, enemyRef.current!);
+          const pStats = { ...playerStats };
+          const eStats = { ...enemyInstance };
+          const result = CombatLogic.executeSkill(payload, pStats, eStats);
 
           if (result.success) {
             spawnText(result.message, [-1.5, 1.5, 2], '#4ade80');
             if (result.healAmount) {
               spawnText(`+${result.healAmount}`, [-1.5, 2.0, 2], '#4ade80');
-              playerRef.current.hp = Math.min(
-                playerRef.current.maxHp,
-                playerRef.current.hp + result.healAmount
-              );
+              pStats.hp = Math.min(pStats.maxHp, pStats.hp + result.healAmount);
             }
-            if (result.cost) {
-              playerRef.current.mp = Math.max(0, playerRef.current.mp - result.cost);
-            }
-            if (result.buffApplied) {
-              if (result.buffApplied.type === 'vulnerable') {
-                enemyRef.current!.statusEffects.push(result.buffApplied);
-              } else {
-                playerRef.current.statusEffects.push(result.buffApplied);
-              }
-            }
-            updatePlayerStats({ ...playerRef.current });
+            if (result.cost) pStats.mp = Math.max(0, pStats.mp - result.cost);
+
+            setPlayerStats(pStats);
+            setEnemyInstance(eStats);
             setRequestedAction(null);
           }
         }, 500);
-      }
-      // 2. ATTACKS
-      else {
-        const parts = requestedAction.split('|');
-        const attackId = parts[0];
-        const limbId = parts[1];
-
+      } else {
+        const [attackId, limbId] = requestedAction.split('|');
         setPlayerAction('attack');
         setPlayerAttackVariant((prev) => (prev === 1 ? 2 : 1));
-        setCombatPhase('player_acting');
+        setTurnState('player_acting');
 
         setTimeout(() => {
           const result = CombatLogic.calculatePlayerAttack(
-            playerRef.current,
-            enemyRef.current!,
+            playerStats,
+            enemyInstance,
             limbId,
             attackId
           );
@@ -165,104 +164,176 @@ export const CombatScene: React.FC<CombatSceneProps> = ({
             );
             if (result.partSevered) {
               spawnText('SEVERED!', [1.5, 2.0, -1.5], '#ef4444');
+              severLimb(limbId);
             }
           } else {
             spawnText('MISS', [1.5, 1.5, -1.5], '#a3a3a3');
           }
 
-          enemyRef.current = result.enemyState;
-          onEnemyUpdate(result.enemyState);
-
-          if (result.isFatal) {
-            setEnemyAction('death');
-          }
+          setEnemyInstance(result.enemyState);
+          if (result.isFatal) setEnemyAction('death');
           setRequestedAction(null);
         }, 400);
       }
     }, 0);
 
     return () => clearTimeout(timer);
-  }, [requestedAction, combatPhase]);
+  }, [
+    requestedAction,
+    turnState,
+    enemyInstance,
+    playerStats,
+    setTurnState,
+    setPlayerStats,
+    setEnemyInstance,
+    setRequestedAction,
+    severLimb,
+  ]);
 
-  // -- Animation Callbacks --
+  // Enemy Turn Execution
+  useEffect(() => {
+    if (turnState === 'enemy_turn' && popups.length > 0) return;
+
+    if (turnState === 'enemy_turn' && enemyInstance && enemyInstance.hp > 0 && playerStats) {
+      // 1. LOCK THE STATE IMMEDIATELY.
+      // This stops React from cleaning up and re-triggering this effect during the delay.
+      setTurnState('enemy_acting');
+
+      const mainTimer = setTimeout(() => {
+        const enemyDef = ENEMIES[enemyInstance.instanceId.split('-')[0].toUpperCase()];
+        let availableAttacks = enemyDef?.attacks || [];
+
+        availableAttacks = availableAttacks.filter((atk) => {
+          if (atk.requiredAllParts) {
+            return atk.requiredAllParts.every((partId) => {
+              const p = enemyInstance.parts.find((part) => part.id === partId);
+              return p && !p.isSevered;
+            });
+          }
+          if (atk.requiredAnyParts) {
+            return atk.requiredAnyParts.some((partId) => {
+              const p = enemyInstance.parts.find((part) => part.id === partId);
+              return p && !p.isSevered;
+            });
+          }
+          return true;
+        });
+
+        const attackDef =
+          availableAttacks.length > 0
+            ? availableAttacks[Math.floor(Math.random() * availableAttacks.length)]
+            : { id: 'basic_struggle', name: 'Struggle', damageMod: 0.5 };
+
+        setEnemyAction('attack');
+
+        const isRangedAttack = attackDef?.projectileType || attackDef?.isRanged;
+        const attackTypeLabel = isRangedAttack ? 'Ranged' : 'Melee';
+        spawnText(
+          `${attackDef.name || 'Struggle'} [${attackTypeLabel}]`,
+          [enemyPosition[0], enemyPosition[1] + 2.5, enemyPosition[2]],
+          '#fbbf24'
+        );
+
+        if (attackDef?.cameraZoom) {
+          cameraTargetPos.current.set(-0.1, 2.2, 3.5);
+        }
+
+        const baseFrameTime = 80 / (attackDef?.speedMultiplier || 1.0);
+        const activeProjType =
+          attackDef?.projectileType || (attackDef?.isRanged ? 'blood_orb' : null);
+
+        if (activeProjType) {
+          const projTimer = setTimeout(
+            () => {
+              setActiveProjectile({
+                type: activeProjType,
+                startPos: [enemyPosition[0] - 0.5, enemyPosition[1] + 1.2, enemyPosition[2]],
+                targetPos: [-1.5, 0.5, 2],
+              });
+            },
+            (attackDef.projectileFrame || 3) * baseFrameTime
+          );
+          enemyTimers.current.push(projTimer);
+        }
+
+        const impactDelay = (attackDef?.pauseFrame || 4) * baseFrameTime;
+        const impactTimer = setTimeout(() => {
+          shakeIntensity.current = (attackDef?.screenShake || 0.2) * 1.05;
+
+          const effectiveAttack = Math.max(1, enemyInstance.attack - enemyInstance.attackDebuff);
+          const rawDmg = Math.round(effectiveAttack * (attackDef?.damageMod || 1.0));
+          const finalDmg = Math.max(1, rawDmg - playerStats.defense);
+
+          setPlayerStats((prev) => {
+            const newHp = Math.max(0, prev.hp - finalDmg);
+            if (newHp <= 0) setPlayerAction('die');
+            return { ...prev, hp: newHp };
+          });
+
+          setPlayerAction('hurt');
+          spawnText(`-${finalDmg}`, [-1.5, 1.5, 2], '#ef4444');
+        }, impactDelay);
+        enemyTimers.current.push(impactTimer);
+      }, 350);
+
+      enemyTimers.current.push(mainTimer);
+    }
+  }, [
+    turnState,
+    enemyInstance,
+    playerStats,
+    setTurnState,
+    setPlayerStats,
+    enemyPosition,
+    popups.length,
+  ]);
+
+  // Animation Callbacks
   const onPlayerAnimEnd = useCallback(() => {
-    if (playerAction === 'die') {
-      setCombatPhase('defeat');
-      return;
-    }
+    if (playerAction === 'die') return setTurnState('defeat');
     setPlayerAction('idle');
-    if (combatPhase === 'player_acting') {
-      if (enemyRef.current?.hp === 0) {
-        // Wait for enemy death anim
-      } else {
-        setCombatPhase('enemy_turn');
-      }
-    }
-  }, [playerAction, combatPhase, setCombatPhase]);
+    if (turnState === 'player_acting' && enemyInstance?.hp !== 0) setTurnState('enemy_turn');
+  }, [playerAction, turnState, enemyInstance, setTurnState]);
 
   const onEnemyAnimEnd = useCallback(() => {
-    if (enemyAction === 'death') {
-      setCombatPhase('victory');
-      return;
-    }
+    if (enemyAction === 'death') return setTurnState('victory');
     setEnemyAction('idle');
-    if (combatPhase === 'enemy_acting') {
-      setCombatPhase('player_turn');
-    }
-  }, [enemyAction, combatPhase, setCombatPhase]);
+    if (turnState === 'enemy_acting') setTurnState('player_turn');
+  }, [enemyAction, turnState, setTurnState]);
 
-  // -- Enemy Turn AI --
+  // --- Camera Reset Manager ---
+  // Only reset the camera when returning to the player's turn AND all popups have vanished
   useEffect(() => {
-    if (combatPhase === 'enemy_turn' && enemyRef.current && enemyRef.current.hp > 0) {
-      const timer = setTimeout(() => {
-        setEnemyAction('attack');
-        setCombatPhase('enemy_acting');
-
-        setTimeout(() => {
-          const dmg = Math.max(0, 10 - playerRef.current.defense);
-          playerRef.current.hp = Math.max(0, playerRef.current.hp - dmg);
-          updatePlayerStats({ ...playerRef.current });
-          setPlayerAction('hurt');
-          shakeIntensity.current = 0.2;
-          spawnText(`-${dmg}`, [-1.5, 1.5, 2], '#ef4444');
-
-          if (playerRef.current.hp <= 0) {
-            setPlayerAction('die');
-          }
-        }, 300);
-      }, 1000);
-      return () => clearTimeout(timer);
+    if (turnState === 'player_turn' && popups.length === 0) {
+      cameraTargetPos.current.copy(originalCamPos);
     }
-  }, [combatPhase]);
+  }, [turnState, popups.length, originalCamPos]);
 
-  // Camera Shake
+  // Dynamic Camera Logic
   useFrame((state) => {
+    state.camera.position.lerp(cameraTargetPos.current, 0.15);
+
     if (shakeIntensity.current > 0) {
-      const shakeX = (Math.random() - 0.5) * shakeIntensity.current;
-      const shakeY = (Math.random() - 0.5) * shakeIntensity.current;
-      state.camera.position.set(
-        originalCamPos.x + shakeX,
-        originalCamPos.y + shakeY,
-        originalCamPos.z
-      );
-      shakeIntensity.current = THREE.MathUtils.lerp(shakeIntensity.current, 0, 0.1);
+      state.camera.position.x += (Math.random() - 0.5) * shakeIntensity.current;
+      state.camera.position.y += (Math.random() - 0.5) * shakeIntensity.current;
+      shakeIntensity.current = THREE.MathUtils.lerp(shakeIntensity.current, 0, 0.15);
+
       if (shakeIntensity.current < 0.01) {
         shakeIntensity.current = 0;
-        state.camera.position.copy(originalCamPos);
       }
     }
+
+    const targetLook = cameraTargetPos.current.equals(originalCamPos)
+      ? new THREE.Vector3(0, 0.8, 0)
+      : new THREE.Vector3(1.2, 1.0, -1.0);
+
+    cameraLookAt.current.lerp(targetLook, 0.15);
+    state.camera.lookAt(cameraLookAt.current);
   });
 
   return (
     <group>
-      <PerspectiveCamera
-        makeDefault
-        position={originalCamPos}
-        fov={50}
-        near={0.01}
-        far={100}
-        onUpdate={(c) => c.lookAt(0, 0.8, 0)}
-      />
+      <PerspectiveCamera makeDefault position={originalCamPos} fov={50} near={0.01} far={100} />
       <ambientLight intensity={0.6} color="#ffffff" />
       <directionalLight position={[2, 5, 2]} intensity={1.0} color="#ffffff" />
 
@@ -279,27 +350,43 @@ export const CombatScene: React.FC<CombatSceneProps> = ({
         <CombatTorch position={[-5, 2, -5.9]} />
         <CombatTorch position={[5, 2, -5.9]} />
 
-        <CombatPlayer
-          classId={initialStats.classId}
-          action={playerAction}
-          attackVariant={playerAttackVariant}
-          onAnimEnd={onPlayerAnimEnd}
-          position={[-1.5, -0.8, 2]}
-        />
+        {playerStats && (
+          <CombatPlayer
+            classId={playerStats.classId}
+            action={playerAction}
+            attackVariant={playerAttackVariant}
+            onAnimEnd={onPlayerAnimEnd}
+            position={[-1.5, -0.8, 2]}
+          />
+        )}
 
-        <CombatEnemy
-          enemyId={enemyId}
-          action={enemyAction}
-          onAnimEnd={onEnemyAnimEnd}
-          position={[1.5, -0.8, -1.5]}
-        />
+        {enemyInstance && (
+          <>
+            <CombatEnemy
+              enemyId={enemyId}
+              action={enemyAction}
+              onAnimEnd={onEnemyAnimEnd}
+              position={enemyPosition}
+            />
+            <SeveredLimbManager enemyPosition={enemyPosition} />
+          </>
+        )}
+
+        {activeProjectile && (
+          <CombatProjectile
+            type={activeProjectile.type}
+            startPos={activeProjectile.startPos}
+            targetPos={activeProjectile.targetPos}
+            onHit={() => setActiveProjectile(null)}
+          />
+        )}
 
         {popups.map((p) => (
           <Html key={p.id} position={p.position} center zIndexRange={[100, 0]}>
             <motion.div
               initial={{ opacity: 0, y: 10, scale: 0.5 }}
               animate={{ opacity: [0, 1, 1, 0], y: [10, -50, -80], scale: [0.5, 1.5, 1] }}
-              transition={{ duration: 1, ease: 'easeOut' }}
+              transition={{ duration: 1.2, ease: 'easeOut' }} // <-- CHANGED from 2.5
               onAnimationComplete={() => removePopup(p.id)}
               className="text-4xl font-pixel pointer-events-none"
               style={{ color: p.color, textShadow: '4px 4px 0 #000' }}

@@ -54,8 +54,8 @@ interface GameProps {
 
 export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
   // --- INITIALIZATION ---
-  // eslint-disable-next-line
-  const [currentLevelId, setCurrentLevelId] = useState(
+
+  const [currentLevelId] = useState(
     initialSaveData ? initialSaveData.currentLevelId : INITIAL_LEVEL_ID
   );
 

@@ -1,12 +1,46 @@
-import React, { useRef } from 'react';
-import { useFrame, useThree, extend } from '@react-three/fiber';
-import { Effects } from '@react-three/drei';
-// @ts-ignore
-import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass';
-import { SanityShader } from './SanityShader';
+import React, { forwardRef, useMemo } from 'react';
+import { EffectComposer } from '@react-three/postprocessing';
+import { Effect, EffectAttribute } from 'postprocessing';
 import * as THREE from 'three';
+import { sanityFragmentShader } from './SanityShader';
 
-extend({ ShaderPass });
+// Custom postprocessing Effect wrapping the sanity shader.
+class SanityEffectImpl extends Effect {
+  constructor() {
+    super('SanityEffect', sanityFragmentShader, {
+      attributes: EffectAttribute.CONVOLUTION,
+      uniforms: new Map<string, THREE.Uniform>([
+        ['uSanity', new THREE.Uniform(1.0)],
+        ['uTime', new THREE.Uniform(0.0)],
+      ]),
+    });
+  }
+
+  update(_renderer: THREE.WebGLRenderer, _inputBuffer: THREE.WebGLRenderTarget, deltaTime: number) {
+    const timeUniform = this.uniforms.get('uTime');
+    if (timeUniform) {
+      timeUniform.value += deltaTime;
+    }
+  }
+}
+
+// Documented custom-effect wrapper pattern: forwardRef + dispose={null}.
+// This is what makes @react-three/postprocessing's EffectComposer reliably
+// pick the effect up as an active pass (bare <primitive object={effect} />
+// directly inside EffectComposer is not reliably detected).
+const SanityEffectPrimitive = forwardRef<SanityEffectImpl, { normalizedSanity: number }>(
+  ({ normalizedSanity }, ref) => {
+    const effect = useMemo(() => new SanityEffectImpl(), []);
+
+    const sanityUniform = effect.uniforms.get('uSanity');
+    if (sanityUniform) {
+      sanityUniform.value = normalizedSanity;
+    }
+
+    return <primitive ref={ref} object={effect} dispose={null} />;
+  }
+);
+SanityEffectPrimitive.displayName = 'SanityEffectPrimitive';
 
 interface SanityEffectsProps {
   sanity: number;
@@ -14,34 +48,13 @@ interface SanityEffectsProps {
 }
 
 export const SanityEffects: React.FC<SanityEffectsProps> = ({ sanity, maxSanity }) => {
-  const shaderRef = useRef<ShaderPass>(null);
-  const { size } = useThree();
-
   // Safety check to prevent NaN
   const safeMax = maxSanity || 100;
   const normalizedSanity = Math.max(0, Math.min(1, sanity / safeMax));
 
-  useFrame((state) => {
-    // Access the reference
-    const pass = shaderRef.current;
-
-    // We check for 'pass.material' to ensure the shader program exists
-    if (pass && pass.material) {
-      pass.material.uniforms.uTime.value = state.clock.getElapsedTime();
-      pass.material.uniforms.uSanity.value = normalizedSanity;
-    }
-  });
-
   return (
-    <Effects>
-      {/* @ts-ignore */}
-      <shaderPass
-        ref={shaderRef}
-        attach="passes"
-        args={[SanityShader]}
-        uniforms-uResolution-value={new THREE.Vector2(size.width, size.height)}
-        renderToScreen
-      />
-    </Effects>
+    <EffectComposer>
+      <SanityEffectPrimitive normalizedSanity={normalizedSanity} />
+    </EffectComposer>
   );
 };

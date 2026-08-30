@@ -34,22 +34,25 @@ export const CharacterCreation: React.FC<CharacterCreationProps> = ({ onConfirm,
 
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center bg-black">
-      {/* Main Container - Scalable */}
+      {/* Main Container */}
       <div
         className="flex border border-neutral-800 bg-neutral-950/50 shadow-2xl relative"
         style={{ width: '90vw', height: '80vh', maxWidth: '1600px' }}
       >
         {/* Left: Portrait / Visuals */}
-        <div className="flex-1 border-r border-neutral-800 relative overflow-hidden flex flex-col items-center justify-center bg-black">
-          <div
-            className="absolute inset-0 opacity-30 bg-cover bg-center transition-all duration-700"
-            style={{
-              backgroundImage: `url('/textures/classes/${currentClass.id.toLowerCase()}.jpg')`,
-            }}
-          />
-          <div className="relative z-10 text-center">
+        <div className="flex-1 border-r border-neutral-800 relative overflow-hidden flex flex-col items-center justify-center bg-black p-8">
+          <div className="relative z-10 flex flex-col items-center">
+            {/* Expanded Icon Display */}
+            <div className="w-[32vmin] h-[32vmin] mb-[3vmin] border border-neutral-800 bg-neutral-900/40 p-[2vmin] flex items-center justify-center rounded shadow-2xl">
+              <img
+                src={`/sprites/icons/${currentClass.id.toLowerCase()}_icon.png`}
+                alt={currentClass.name}
+                className="w-full h-full object-contain filter drop-shadow-[0_0_20px_rgba(255,255,255,0.2)] image-rendering-pixelated"
+              />
+            </div>
+
             <div
-              className="font-serif text-neutral-500 uppercase tracking-[0.5em] mb-[2vmin]"
+              className="font-serif text-neutral-500 uppercase tracking-[0.5em] mb-[1vmin]"
               style={{ fontSize: '1.5vmin' }}
             >
               Class Selection

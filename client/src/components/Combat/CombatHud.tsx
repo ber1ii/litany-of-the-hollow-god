@@ -1,26 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import type { PlayerStats, CombatEnemyInstance, InventoryItem } from '../../types/GameTypes';
+import type { InventoryItem } from '../../types/GameTypes';
 import { SKILL_DATABASE } from '../../data/Skills';
 import { WEAPON_TYPES, WEAPON_ATTACKS } from '../../data/WeaponRegistry';
+import { useCombatStore } from '../../hooks/useCombatStore';
 
 interface CombatHudProps {
-  combatState:
-    | 'player_turn'
-    | 'player_acting'
-    | 'enemy_turn'
-    | 'enemy_acting'
-    | 'victory'
-    | 'defeat';
-  menuState: 'main' | 'attack_select' | 'items' | 'move_select' | 'skill_select';
-  setMenuState: (
-    state: 'main' | 'attack_select' | 'items' | 'move_select' | 'skill_select'
-  ) => void;
-  playerStats: PlayerStats;
-  enemyInstance: CombatEnemyInstance | null;
-  onAction: (actionId: string) => void;
   onLeave: (victory: boolean) => void;
-  inventory: InventoryItem[];
+  inventory?: InventoryItem[];
 }
 
 interface CombatMenuOption {
@@ -32,27 +19,28 @@ interface CombatMenuOption {
   color?: string;
 }
 
-// Helper: Find equipped weapon
 const getEquippedWeaponId = (inventory: InventoryItem[]) => {
   const weapon = inventory.find((i) => i.type === 'weapon');
   return weapon ? weapon.id : 'rusty_sword';
 };
 
-export const CombatHud: React.FC<CombatHudProps> = ({
-  combatState,
-  menuState,
-  setMenuState,
-  playerStats,
-  enemyInstance,
-  onAction,
-  onLeave,
-  inventory,
-}) => {
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const [prevCombatState, setPrevCombatState] = useState(combatState);
+export const CombatHud: React.FC<CombatHudProps> = ({ onLeave, inventory = [] }) => {
+  // Store Subscriptions
+  const turnState = useCombatStore((state) => state.turnState);
+  const playerStats = useCombatStore((state) => state.playerStats);
+  const enemyInstance = useCombatStore((state) => state.enemyInstance);
+  const setRequestedAction = useCombatStore((state) => state.setRequestedAction);
+  const setTargetPartId = useCombatStore((state) => state.setTargetPartId);
 
-  // Determine available attacks based on weapon
-  const weaponId = useMemo(() => getEquippedWeaponId(inventory || []), [inventory]);
+  // Local UI State
+  const [menuState, setMenuState] = useState<
+    'main' | 'attack_select' | 'items' | 'move_select' | 'skill_select'
+  >('main');
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [prevCombatState, setPrevCombatState] = useState(turnState);
+
+  // Available attacks based on weapon
+  const weaponId = useMemo(() => getEquippedWeaponId(inventory), [inventory]);
   const availableAttacks = useMemo(
     () => WEAPON_TYPES[weaponId] || WEAPON_TYPES['rusty_sword'],
     [weaponId]
@@ -60,18 +48,35 @@ export const CombatHud: React.FC<CombatHudProps> = ({
 
   const [selectedMove, setSelectedMove] = useState<string>(availableAttacks[0]);
 
-  if (combatState !== prevCombatState) {
-    setPrevCombatState(combatState);
+  if (turnState !== prevCombatState) {
+    setPrevCombatState(turnState);
     setSelectedIndex(0);
+    if (turnState === 'player_turn') {
+      setMenuState('main');
+    }
   }
 
+  // --- Bi-directional Sync with 3D Crosshair Overlay ---
+  useEffect(() => {
+    if (menuState === 'attack_select' && enemyInstance?.parts) {
+      const selectedPart = enemyInstance.parts[selectedIndex];
+      if (selectedPart && !selectedPart.isSevered) {
+        setTargetPartId(selectedPart.id);
+      } else {
+        setTargetPartId(null);
+      }
+    } else {
+      setTargetPartId(null);
+    }
+  }, [menuState, selectedIndex, enemyInstance, setTargetPartId]);
+
   const currentOptions = useMemo<CombatMenuOption[]>(() => {
-    if (combatState === 'victory')
+    if (turnState === 'victory')
       return [{ label: 'Leave Area', action: () => onLeave(true), disabled: false }];
-    if (combatState === 'defeat')
+    if (turnState === 'defeat')
       return [{ label: 'Accept Fate', action: () => onLeave(false), disabled: false }];
 
-    if (combatState === 'player_turn') {
+    if (turnState === 'player_turn') {
       if (menuState === 'main') {
         return [
           {
@@ -93,17 +98,13 @@ export const CombatHud: React.FC<CombatHudProps> = ({
           { label: 'Inventory', action: () => {}, disabled: true, subtext: '(WIP)' },
           { label: 'Flee', action: () => {}, disabled: true },
         ];
-      } else if (menuState === 'move_select') {
-        // Dynamic Attack List
+      }
+
+      if (menuState === 'move_select') {
         const attackOptions = availableAttacks
           .map((attackId) => {
             const def = WEAPON_ATTACKS[attackId];
-
-            // Safety Check
-            if (!def) {
-              console.warn(`Missing weapon attack definition for ID: ${attackId}`);
-              return null;
-            }
+            if (!def) return null;
 
             return {
               label: def.name,
@@ -116,7 +117,7 @@ export const CombatHud: React.FC<CombatHudProps> = ({
               disabled: false,
             };
           })
-          .filter((opt) => opt !== null) as CombatMenuOption[];
+          .filter(Boolean) as CombatMenuOption[];
 
         return [
           ...attackOptions,
@@ -130,8 +131,9 @@ export const CombatHud: React.FC<CombatHudProps> = ({
             icon: '«',
           },
         ];
-      } else if (menuState === 'attack_select' && enemyInstance) {
-        // Limb Targeting
+      }
+
+      if (menuState === 'attack_select' && enemyInstance) {
         const attackDef = WEAPON_ATTACKS[selectedMove];
         const limbOptions = enemyInstance.parts.map((part) => {
           const hitChance = Math.min(
@@ -142,13 +144,14 @@ export const CombatHud: React.FC<CombatHudProps> = ({
 
           return {
             label: part.name,
-            action: () => onAction(`${selectedMove}|${part.id}`),
+            action: () => setRequestedAction(`${selectedMove}|${part.id}`),
             disabled: isDead,
             subtext: isDead ? 'SEVERED' : `${part.hp}/${part.maxHp} HP • ${hitChance}% Hit`,
             icon: isDead ? 'X' : '◈',
             color: part.hitChanceMod < 0 ? 'text-red-400' : 'text-green-400',
           };
         });
+
         return [
           ...limbOptions,
           {
@@ -161,7 +164,9 @@ export const CombatHud: React.FC<CombatHudProps> = ({
             icon: '«',
           },
         ];
-      } else if (menuState === 'skill_select') {
+      }
+
+      if (menuState === 'skill_select' && playerStats) {
         const unlocked = playerStats.unlockedSkills || [];
 
         const skillOptions = unlocked
@@ -172,7 +177,7 @@ export const CombatHud: React.FC<CombatHudProps> = ({
             return {
               label: def.name,
               subtext: `${def.cost ? def.cost + ' MP' : ''} ${def.description}`,
-              action: () => onAction(`skill:${def.id}`),
+              action: () => setRequestedAction(`skill:${def.id}`),
               disabled: (def.cost || 0) > playerStats.mp,
               icon: '★',
             };
@@ -195,22 +200,20 @@ export const CombatHud: React.FC<CombatHudProps> = ({
     }
     return [];
   }, [
-    combatState,
+    turnState,
     menuState,
-    setMenuState,
-    onAction,
-    onLeave,
     enemyInstance,
     selectedMove,
-    playerStats.mp,
-    playerStats.unlockedSkills,
+    playerStats,
     availableAttacks,
+    onLeave,
+    setRequestedAction,
   ]);
 
   // Key Handler
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (!['player_turn', 'victory', 'defeat'].includes(combatState)) return;
+      if (!['player_turn', 'victory', 'defeat'].includes(turnState)) return;
       if (currentOptions.length === 0) return;
 
       switch (e.key) {
@@ -226,12 +229,12 @@ export const CombatHud: React.FC<CombatHudProps> = ({
           break;
         case 'Enter':
         case ' ':
-          if (!currentOptions[selectedIndex].disabled) {
-            currentOptions[selectedIndex].action();
+          if (!currentOptions[selectedIndex]?.disabled) {
+            currentOptions[selectedIndex]?.action();
           }
           break;
         case 'Backspace':
-          if (menuState !== 'main' && combatState === 'player_turn') {
+          if (menuState !== 'main' && turnState === 'player_turn') {
             setMenuState('main');
             setSelectedIndex(0);
           }
@@ -241,11 +244,30 @@ export const CombatHud: React.FC<CombatHudProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentOptions, selectedIndex, combatState, menuState, setMenuState]);
+  }, [currentOptions, selectedIndex, turnState, menuState]);
 
   const enemyName = enemyInstance?.name || 'Unknown';
   const enemyHp = enemyInstance?.hp || 0;
   const enemyMaxHp = enemyInstance?.maxHp || 100;
+
+  const playerHp = playerStats?.hp || 0;
+  const playerMaxHp = playerStats?.maxHp || 100;
+  const playerMp = playerStats?.mp || 0;
+  const playerMaxMp = playerStats?.maxMp || 100;
+
+  // Determine if a limb is actively being hovered to show the targeted HUD
+  const isTargetingLimb = menuState === 'attack_select' && turnState === 'player_turn';
+  const hoveredLimb =
+    isTargetingLimb && enemyInstance?.parts ? enemyInstance.parts[selectedIndex] : null;
+  const hoveredLimbHitChance = hoveredLimb
+    ? Math.min(
+        100,
+        Math.max(
+          0,
+          90 + hoveredLimb.hitChanceMod + (WEAPON_ATTACKS[selectedMove]?.accuracyMod || 0)
+        )
+      )
+    : 0;
 
   return (
     <div className="absolute inset-0 pointer-events-none z-50">
@@ -262,6 +284,32 @@ export const CombatHud: React.FC<CombatHudProps> = ({
           />
           <div className="absolute inset-0 border border-white/5" />
         </div>
+
+        {/* Dynamic Limb Target HUD Component */}
+        {isTargetingLimb && hoveredLimb && (
+          <motion.div
+            initial={{ opacity: 0, y: -5 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="w-full max-w-[240px] flex flex-col items-center mt-3 p-2 bg-neutral-900/90 border border-neutral-700/50 shadow-lg"
+          >
+            <div className="w-full flex justify-between items-end mb-1">
+              <span className="text-[10px] font-mono text-amber-500 uppercase tracking-widest">
+                Target: {hoveredLimb.name}
+              </span>
+              <span
+                className={`text-[10px] font-mono ${hoveredLimb.hitChanceMod < 0 ? 'text-red-400' : 'text-green-400'}`}
+              >
+                {hoveredLimbHitChance}% HIT
+              </span>
+            </div>
+            <div className="w-full h-1.5 bg-neutral-950 border border-neutral-700 relative">
+              <motion.div
+                className="h-full bg-amber-600"
+                animate={{ width: `${(hoveredLimb.hp / hoveredLimb.maxHp) * 100}%` }}
+              />
+            </div>
+          </motion.div>
+        )}
       </div>
 
       <div className="pointer-events-auto absolute bottom-0 right-0 w-full md:w-[50vw] max-w-3xl h-[240px] flex">
@@ -281,7 +329,7 @@ export const CombatHud: React.FC<CombatHudProps> = ({
             )}
           </div>
 
-          {combatState === 'player_turn' ? (
+          {turnState === 'player_turn' ? (
             <div className="flex flex-col gap-0.5 h-full overflow-y-auto scrollbar-none">
               {currentOptions.map((opt, idx) => (
                 <ActionButton
@@ -291,6 +339,7 @@ export const CombatHud: React.FC<CombatHudProps> = ({
                   disabled={opt.disabled}
                   isSelected={idx === selectedIndex}
                   icon={opt.icon}
+                  color={opt.color}
                   onClick={() => {
                     setSelectedIndex(idx);
                     if (!opt.disabled) opt.action();
@@ -302,7 +351,7 @@ export const CombatHud: React.FC<CombatHudProps> = ({
           ) : (
             <div className="w-full h-full flex items-center justify-center">
               <span className="font-serif text-lg text-neutral-600 tracking-widest animate-pulse">
-                {combatState.toUpperCase().replace('_', ' ')}
+                {turnState.toUpperCase().replace('_', ' ')}
               </span>
             </div>
           )}
@@ -317,19 +366,19 @@ export const CombatHud: React.FC<CombatHudProps> = ({
               <div className="w-full h-2 bg-neutral-900 border border-neutral-700 mb-2">
                 <motion.div
                   className="h-full bg-red-800"
-                  animate={{ width: `${(playerStats.hp / playerStats.maxHp) * 100}%` }}
+                  animate={{ width: `${(playerHp / playerMaxHp) * 100}%` }}
                 />
               </div>
               <div className="w-full h-1.5 bg-neutral-900 border border-neutral-700">
                 <motion.div
                   className="h-full bg-blue-900/60"
-                  animate={{ width: `${(playerStats.mp / playerStats.maxMp) * 100}%` }}
+                  animate={{ width: `${(playerMp / playerMaxMp) * 100}%` }}
                 />
               </div>
             </div>
           </div>
 
-          {(combatState === 'victory' || combatState === 'defeat') && (
+          {(turnState === 'victory' || turnState === 'defeat') && (
             <div className="absolute bottom-4 right-4 z-50 flex gap-4">
               {currentOptions.map((opt, idx) => (
                 <button
@@ -358,6 +407,7 @@ interface ActionButtonProps {
   isSelected?: boolean;
   icon?: string;
   subtext?: string;
+  color?: string;
 }
 
 const ActionButton: React.FC<ActionButtonProps> = ({
@@ -368,6 +418,7 @@ const ActionButton: React.FC<ActionButtonProps> = ({
   isSelected = false,
   icon = '◈',
   subtext,
+  color,
 }) => (
   <button
     onClick={disabled ? undefined : onClick}
@@ -378,14 +429,20 @@ const ActionButton: React.FC<ActionButtonProps> = ({
   >
     {!disabled && (
       <span
-        className={`absolute left-1.5 top-1/2 -translate-y-1/2 text-amber-700 transition-opacity text-xs ${isSelected ? 'opacity-100' : 'opacity-0'}`}
+        className={`absolute left-1.5 top-1/2 -translate-y-1/2 transition-opacity text-xs ${isSelected ? 'opacity-100 text-amber-500' : 'opacity-0'} ${color || 'text-amber-700'}`}
       >
         {icon}
       </span>
     )}
     <div className="flex justify-between items-baseline pl-4">
       <span className="font-serif text-sm tracking-wide uppercase">{label}</span>
-      {subtext && <span className="font-mono text-[10px] text-neutral-500">{subtext}</span>}
+      {subtext && (
+        <span
+          className={`font-mono text-[10px] ${!disabled && !isSelected && color ? color : 'text-neutral-500'}`}
+        >
+          {subtext}
+        </span>
+      )}
     </div>
   </button>
 );

@@ -4,96 +4,128 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { getSpritePaths } from '../../utils/assetUtils';
 import { TILE_SIZE } from './MapData';
+import { useMonsterBehavior } from '../../hooks/useMonsterBehavior';
+import type { MonsterBehavior, Direction } from '../../hooks/useMonsterBehavior';
+import type { MonsterType } from '../../types/GameTypes';
 
 interface MonsterProps {
   id: string;
-  type: 'skeleton';
+  type: MonsterType;
   startX: number;
   startZ: number;
+  behavior?: MonsterBehavior;
   playerPos: THREE.Vector3;
   onCombatStart: () => void;
   enemyTracker: React.RefObject<Map<string, { x: number; z: number }>>;
+  scale?: number;
 }
+
+const SPRITESHEET_CONFIGS: Record<string, { url: string; cols: number; rows: number }> = {
+  orc2: { url: '/sprites/characters/orc2/orc2_walk_full.png', cols: 6, rows: 4 },
+  orc3: { url: '/sprites/characters/orc3/orc3_walk_full.png', cols: 6, rows: 4 },
+  vampire1: { url: '/sprites/characters/vampire1/Vampires2_Walk_full.png', cols: 6, rows: 4 },
+  vampire_boss: {
+    url: '/sprites/characters/vampire_boss/Vampires3_Walk_full.png',
+    cols: 6,
+    rows: 4,
+  },
+};
+
+const DIRECTION_ROW_MAP: Record<string, number> = {
+  S: 0,
+  N: 1,
+  W: 2,
+  E: 3,
+};
 
 export const Monster: React.FC<MonsterProps> = ({
   id,
   type,
   startX,
   startZ,
+  behavior = { type: 'patrol', axis: 'x', range: 2, speed: 1.5 },
   playerPos,
   onCombatStart,
   enemyTracker,
+  scale = 1.4,
 }) => {
-  // AI State
-  const [direction, setDirection] = useState('S');
-  const action = 'walk';
-
-  // Patrol logic dependencies
+  const [direction, setDirection] = useState<Direction>('S');
   const groupRef = useRef<THREE.Group>(null);
   const materialRef = useRef<THREE.MeshStandardMaterial>(null);
-  const patrolDir = useRef(1);
   const currentPos = useRef(new THREE.Vector3(startX * TILE_SIZE, 0.15, startZ * TILE_SIZE));
-
-  // Latch to track combat encounter later (prevent 60fps triggers)
   const hasTriggeredCombat = useRef(false);
 
-  // Sprite loading
-  const paths = getSpritePaths(type, action, direction);
-  const result = useTexture(paths);
+  const { updatePosition } = useMonsterBehavior(startX, startZ, behavior);
 
-  const textures = useMemo(() => {
-    const arr = Array.isArray(result) ? result : [result];
+  const isSheetMonster = Boolean(SPRITESHEET_CONFIGS[type]);
+  const sheetConfig = SPRITESHEET_CONFIGS[type];
+
+  const folderPaths = useMemo(
+    () => (isSheetMonster ? [] : getSpritePaths(type as 'skeleton', 'walk', direction)),
+    [type, direction, isSheetMonster]
+  );
+
+  const rawTextureOrArray = useTexture(isSheetMonster ? sheetConfig.url : folderPaths);
+
+  const activeTexture = useMemo(() => {
+    if (isSheetMonster && rawTextureOrArray && !Array.isArray(rawTextureOrArray)) {
+      const tex = rawTextureOrArray.clone();
+      tex.magFilter = THREE.NearestFilter;
+      tex.minFilter = THREE.NearestFilter;
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(1 / sheetConfig.cols, 1 / sheetConfig.rows);
+      tex.needsUpdate = true;
+      return tex;
+    }
+    return null;
+  }, [rawTextureOrArray, isSheetMonster, sheetConfig]);
+
+  const folderTextures = useMemo(() => {
+    if (isSheetMonster) return [];
+    const arr = Array.isArray(rawTextureOrArray) ? rawTextureOrArray : [rawTextureOrArray];
     arr.forEach((t) => {
       t.magFilter = THREE.NearestFilter;
       t.minFilter = THREE.NearestFilter;
       t.colorSpace = THREE.SRGBColorSpace;
     });
     return arr;
-  }, [result]);
+  }, [rawTextureOrArray, isSheetMonster]);
 
   useEffect(() => {
+    const trackerMap = enemyTracker.current;
     return () => {
-      if (enemyTracker.current) {
-        enemyTracker.current.delete(id);
+      if (trackerMap) {
+        trackerMap.delete(id);
       }
     };
   }, [id, enemyTracker]);
 
-  // Game loop
   useFrame((state, delta) => {
-    if (!groupRef.current) return;
+    if (!groupRef.current || hasTriggeredCombat.current) return;
 
-    // Patrol logic
-    // Move along X axis
-    const speed = 1.5;
-    const moveX = patrolDir.current * speed * delta;
-    currentPos.current.x += moveX;
-
-    const rightBound = (startX + 2) * TILE_SIZE;
-    const leftBound = (startX - 2) * TILE_SIZE;
-
-    if (currentPos.current.x > rightBound) {
-      patrolDir.current = -1;
-    } else if (currentPos.current.x < leftBound) {
-      patrolDir.current = 1;
+    const newDirection = updatePosition(currentPos, delta);
+    if (newDirection !== direction) {
+      setDirection(newDirection);
     }
-
     groupRef.current.position.copy(currentPos.current);
 
-    // Direction calculation
-    if (patrolDir.current === 1 && direction !== 'E') {
-      setDirection('E');
-    } else if (patrolDir.current === -1 && direction !== 'W') {
-      setDirection('W');
+    if (isSheetMonster && materialRef.current?.map) {
+      const map = materialRef.current.map as THREE.Texture;
+      const frameIndex = Math.floor(state.clock.elapsedTime * 8) % sheetConfig.cols;
+      const primaryDir = direction.charAt(0) as 'S' | 'W' | 'E' | 'N';
+      const rowIndex = DIRECTION_ROW_MAP[primaryDir] ?? 0;
+
+      const offsetX = frameIndex / sheetConfig.cols;
+      const offsetY = 1 - (rowIndex + 1) / sheetConfig.rows;
+
+      map.offset.set(offsetX, offsetY);
+    } else if (!isSheetMonster && folderTextures.length > 0 && materialRef.current) {
+      const frameIndex = Math.floor(state.clock.elapsedTime * 10) % folderTextures.length;
+      materialRef.current.map = folderTextures[frameIndex];
     }
 
-    // Animation frame
-    if (textures.length > 0 && materialRef.current) {
-      const frameIndex = Math.floor(state.clock.elapsedTime * 10) % textures.length;
-      materialRef.current.map = textures[frameIndex];
-    }
-
-    // UPDATE TRACKER
     if (enemyTracker.current) {
       enemyTracker.current.set(id, {
         x: currentPos.current.x,
@@ -101,29 +133,25 @@ export const Monster: React.FC<MonsterProps> = ({
       });
     }
 
-    // --- COMBAT ---
-    if (!hasTriggeredCombat.current) {
-      // 1. Calculate 2D distance (Horizontal only)
-      //    This ignores the height difference (0.5 vs 0.15)
-      const dx = currentPos.current.x - playerPos.x;
-      const dz = currentPos.current.z - playerPos.z;
-      const distance2D = Math.sqrt(dx * dx + dz * dz);
-
-      // 2. Trigger at 0.5 distance (half a tile)
-      if (distance2D < 0.5) {
-        console.log('Combat Triggered!');
-        hasTriggeredCombat.current = true;
-        onCombatStart();
-      }
+    const dx = currentPos.current.x - playerPos.x;
+    const dz = currentPos.current.z - playerPos.z;
+    if (Math.sqrt(dx * dx + dz * dz) < 0.5) {
+      hasTriggeredCombat.current = true;
+      onCombatStart();
     }
   });
 
   return (
     <group ref={groupRef} position={[startX * TILE_SIZE, 0.15, startZ * TILE_SIZE]}>
       <Billboard lockX={false} lockY={false} lockZ={false}>
-        <mesh>
-          <planeGeometry args={[2, 2]} />
-          <meshStandardMaterial ref={materialRef} map={textures[0]} transparent alphaTest={0.5} />
+        <mesh position={[0, 0, 0]}>
+          <planeGeometry args={[scale, scale]} />
+          <meshStandardMaterial
+            ref={materialRef}
+            map={activeTexture || folderTextures[0]}
+            transparent
+            alphaTest={0.5}
+          />
         </mesh>
       </Billboard>
     </group>

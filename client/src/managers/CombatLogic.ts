@@ -29,6 +29,9 @@ export const CombatLogic = {
       name: def.name,
       hp: def.baseStats.maxHp,
       maxHp: def.baseStats.maxHp,
+      attack: def.baseStats.attack,
+      defense: def.baseStats.defense,
+      speed: def.baseStats.speed,
       parts: partsCopy,
       statusEffects: [],
       attackDebuff: 0,
@@ -156,8 +159,9 @@ export const CombatLogic = {
     };
   },
 
-  //eslint-disable-next-line
   executeSkill: (skillId: string, player: PlayerStats, enemy: CombatEnemyInstance): SkillResult => {
+    void enemy;
+
     const skillDef = SKILL_DATABASE[skillId];
 
     if (!skillDef) {

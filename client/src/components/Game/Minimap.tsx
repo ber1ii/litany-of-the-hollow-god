@@ -40,213 +40,201 @@ export const Minimap: React.FC<MinimapProps> = ({
     return items;
   }, [map]);
 
-  const draw = (ctx: CanvasRenderingContext2D, px: number, pz: number, pRot: number) => {
-    // Clear & Background
-    ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-    ctx.fillStyle = '#050505';
-    ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+  useEffect(() => {
+    let animationFrameId: number;
 
-    const centerX = CANVAS_SIZE / 2;
-    const centerY = CANVAS_SIZE / 2;
+    const draw = (ctx: CanvasRenderingContext2D, px: number, pz: number, pRot: number) => {
+      // Clear & Background
+      ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+      ctx.fillStyle = '#050505';
+      ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
 
-    const toCanvas = (wx: number, wz: number) => ({
-      x: centerX + (wx - px) * ZOOM,
-      y: centerY + (wz - pz) * ZOOM,
-    });
+      const centerX = CANVAS_SIZE / 2;
+      const centerY = CANVAS_SIZE / 2;
 
-    const startX = Math.max(0, Math.floor(px - VIEW_RADIUS));
-    const endX = Math.min(map[0].length, Math.ceil(px + VIEW_RADIUS));
-    const startZ = Math.max(0, Math.floor(pz - VIEW_RADIUS));
-    const endZ = Math.min(map.length, Math.ceil(pz + VIEW_RADIUS));
+      const toCanvas = (wx: number, wz: number) => ({
+        x: centerX + (wx - px) * ZOOM,
+        y: centerY + (wz - pz) * ZOOM,
+      });
 
-    for (let z = startZ; z < endZ; z++) {
-      for (let x = startX; x < endX; x++) {
-        const tileId = map[z][x];
-        if (tileId === 0) continue;
+      const startX = Math.max(0, Math.floor(px - VIEW_RADIUS));
+      const endX = Math.min(map[0].length, Math.ceil(px + VIEW_RADIUS));
+      const startZ = Math.max(0, Math.floor(pz - VIEW_RADIUS));
+      const endZ = Math.min(map.length, Math.ceil(pz + VIEW_RADIUS));
 
-        const def = getTileDef(tileId);
-        const { x: cx, y: cy } = toCanvas(x * TILE_SIZE, z * TILE_SIZE);
+      for (let z = startZ; z < endZ; z++) {
+        for (let x = startX; x < endX; x++) {
+          const tileId = map[z][x];
+          if (tileId === 0) continue;
 
-        const isClosedDoor =
-          tileId === TILE_TYPES.DOOR_CLOSED || tileId === TILE_TYPES.DOOR_LOCKED_SILVER;
+          const def = getTileDef(tileId);
+          const { x: cx, y: cy } = toCanvas(x * TILE_SIZE, z * TILE_SIZE);
 
-        // --- DRAW WALLS & DOORS ---
-        if (def.type === 'wall' || isClosedDoor) {
-          // COLOR LOGIC: Distinction between Wall and Door
-          ctx.fillStyle = isClosedDoor ? '#d97706' : '#555'; // Amber for doors, Grey for walls
+          const isClosedDoor =
+            tileId === TILE_TYPES.DOOR_CLOSED || tileId === TILE_TYPES.DOOR_LOCKED_SILVER;
 
-          // Get orientation to determine shape
-          const orientation = getWallOrientation(x, z, map);
+          // --- DRAW WALLS & DOORS ---
+          if (def.type === 'wall' || isClosedDoor) {
+            ctx.fillStyle = isClosedDoor ? '#d97706' : '#555';
 
-          // Width on Map: Use definition width
-          let w = def.size.w;
-          let h = 1;
+            const orientation = getWallOrientation(x, z, map);
 
-          // If vertical, we swap w and h for the schematic drawing
-          if (orientation === 'vertical') {
-            const temp = w;
-            w = h;
-            h = temp;
+            let w = def.size.w;
+            let h = 1;
+
+            if (orientation === 'vertical') {
+              const temp = w;
+              w = h;
+              h = temp;
+            }
+
+            const WALL_THICKNESS_MAP = 0.4;
+
+            let drawW = ZOOM * w;
+            let drawH = ZOOM * h;
+            let offX = 0;
+            let offY = 0;
+
+            if (orientation === 'vertical') {
+              drawW = ZOOM * WALL_THICKNESS_MAP;
+              drawH = ZOOM * h;
+              offX = (ZOOM - drawW) / 2;
+              offY = 0;
+            } else {
+              drawW = ZOOM * w;
+              drawH = ZOOM * WALL_THICKNESS_MAP;
+              offX = 0;
+              offY = (ZOOM - drawH) / 2;
+            }
+
+            ctx.fillRect(cx + offX, cy + offY, drawW, drawH);
+          } else if (
+            def.type === 'floor' ||
+            tileId === TILE_TYPES.DOOR_OPEN ||
+            tileId === TILE_TYPES.BONFIRE
+          ) {
+            ctx.fillStyle = '#1a1a1a';
+            ctx.fillRect(cx, cy, ZOOM * def.size.w, ZOOM * (def.size.h || 1));
+            ctx.strokeStyle = '#222';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(cx, cy, ZOOM, ZOOM);
           }
+        }
+      }
 
-          // Draw "Thin" Schematic Lines
-          const WALL_THICKNESS_MAP = 0.4; // 40% of a tile
+      // --- DRAW ITEMS ---
+      staticItems.forEach((item) => {
+        if (
+          map[item.z][item.x] === 0 ||
+          (getTileDef(map[item.z][item.x]).type === 'floor' &&
+            map[item.z][item.x] !== TILE_TYPES.BONFIRE)
+        )
+          return;
 
-          let drawW = ZOOM * w;
-          let drawH = ZOOM * h;
-          let offX = 0;
-          let offY = 0;
+        const dist = Math.sqrt(Math.pow(item.x - px, 2) + Math.pow(item.z - pz, 2));
+        if (dist > VIEW_RADIUS) return;
 
-          if (orientation === 'vertical') {
-            drawW = ZOOM * WALL_THICKNESS_MAP;
-            drawH = ZOOM * h; // Full length
-            offX = (ZOOM - drawW) / 2; // Center horizontally
-            offY = 0;
+        if (hasLineOfSight(px, pz, item.x + 0.5, item.z + 0.5, map)) {
+          const { x: cx, y: cy } = toCanvas(item.x * TILE_SIZE, item.z * TILE_SIZE);
+
+          ctx.fillStyle = item.color;
+
+          if (item.type === 'save') {
+            ctx.shadowColor = '#ff5500';
+            ctx.shadowBlur = 15;
+            ctx.beginPath();
+            ctx.fillRect(cx + ZOOM / 2 - 3, cy + ZOOM / 2 - 3, 6, 6);
+            ctx.fill();
           } else {
-            // Horizontal
-            drawW = ZOOM * w; // Full length
-            drawH = ZOOM * WALL_THICKNESS_MAP;
-            offX = 0;
-            offY = (ZOOM - drawH) / 2; // Center vertically
+            ctx.shadowColor = item.color;
+            ctx.shadowBlur = 10;
+            ctx.beginPath();
+            ctx.arc(cx + ZOOM / 2, cy + ZOOM / 2, 3, 0, Math.PI * 2);
+            ctx.fill();
           }
 
-          ctx.fillRect(cx + offX, cy + offY, drawW, drawH);
-        } else if (
-          def.type === 'floor' ||
-          tileId === TILE_TYPES.DOOR_OPEN ||
-          tileId === TILE_TYPES.BONFIRE
-        ) {
-          // Floor
-          ctx.fillStyle = '#1a1a1a';
-          ctx.fillRect(cx, cy, ZOOM * def.size.w, ZOOM * (def.size.h || 1));
-          ctx.strokeStyle = '#222';
-          ctx.lineWidth = 1;
-          ctx.strokeRect(cx, cy, ZOOM, ZOOM);
-        }
-      }
-    }
-
-    // --- DRAW ITEMS ---
-    staticItems.forEach((item) => {
-      // 1. Check if item still exists on map
-      if (
-        map[item.z][item.x] === 0 ||
-        (getTileDef(map[item.z][item.x]).type === 'floor' &&
-          map[item.z][item.x] !== TILE_TYPES.BONFIRE)
-      )
-        return;
-
-      // 2. Distance Check
-      const dist = Math.sqrt(Math.pow(item.x - px, 2) + Math.pow(item.z - pz, 2));
-      if (dist > VIEW_RADIUS) return;
-
-      // 3. Line of Sight
-      if (hasLineOfSight(px, pz, item.x + 0.5, item.z + 0.5, map)) {
-        const { x: cx, y: cy } = toCanvas(item.x * TILE_SIZE, item.z * TILE_SIZE);
-
-        ctx.fillStyle = item.color;
-
-        if (item.type === 'save') {
-          ctx.shadowColor = '#ff5500';
-          ctx.shadowBlur = 15;
-          ctx.beginPath();
-          ctx.fillRect(cx + ZOOM / 2 - 3, cy + ZOOM / 2 - 3, 6, 6);
-          ctx.fill();
-        } else {
-          ctx.shadowColor = item.color;
-          ctx.shadowBlur = 10;
-          ctx.beginPath();
-          ctx.arc(cx + ZOOM / 2, cy + ZOOM / 2, 3, 0, Math.PI * 2);
-          ctx.fill();
-        }
-
-        ctx.shadowBlur = 0;
-      }
-    });
-
-    // --- DRAW ENEMIES ---
-    if (enemyTracker.current) {
-      enemyTracker.current.forEach((pos) => {
-        const ex = pos.x;
-        const ez = pos.z;
-
-        const dx = ex - px;
-        const dz = ez - pz;
-        const dist = Math.sqrt(dx * dx + dz * dz);
-
-        if (dist > FLASHLIGHT_DISTANCE) return;
-
-        const angleToEnemy = Math.atan2(dz, dx);
-        let angleDiff = angleToEnemy - pRot;
-        while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
-        while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-
-        const inCone = Math.abs(angleDiff) < FLASHLIGHT_FOV / 2;
-
-        if (dist < 1.5 || (inCone && hasLineOfSight(px, pz, ex, ez, map))) {
-          const { x: cx, y: cy } = toCanvas(ex, ez);
-
-          ctx.fillStyle = '#ff0000';
-          ctx.shadowColor = '#ff0000';
-          ctx.shadowBlur = 15;
-          ctx.beginPath();
-          ctx.arc(cx, cy, 4, 0, Math.PI * 2);
-          ctx.fill();
           ctx.shadowBlur = 0;
         }
       });
-    }
 
-    // --- PLAYER ---
-    ctx.save();
-    ctx.translate(centerX, centerY);
-    ctx.rotate(pRot);
+      // --- DRAW ENEMIES ---
+      if (enemyTracker.current) {
+        enemyTracker.current.forEach((pos) => {
+          const ex = pos.x;
+          const ez = pos.z;
 
-    // Cone
-    const coneGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, ZOOM * FLASHLIGHT_DISTANCE);
-    coneGrad.addColorStop(0, 'rgba(255, 255, 200, 0.15)');
-    coneGrad.addColorStop(1, 'rgba(255, 255, 200, 0)');
+          const dx = ex - px;
+          const dz = ez - pz;
+          const dist = Math.sqrt(dx * dx + dz * dz);
 
-    ctx.fillStyle = coneGrad;
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.arc(0, 0, ZOOM * FLASHLIGHT_DISTANCE, -FLASHLIGHT_FOV / 2, FLASHLIGHT_FOV / 2);
-    ctx.fill();
+          if (dist > FLASHLIGHT_DISTANCE) return;
 
-    // Arrow
-    ctx.fillStyle = '#00ff00';
-    ctx.beginPath();
-    ctx.moveTo(6, 0);
-    ctx.lineTo(-4, 4);
-    ctx.lineTo(-4, -4);
-    ctx.fill();
-    ctx.restore();
+          const angleToEnemy = Math.atan2(dz, dx);
+          let angleDiff = angleToEnemy - pRot;
+          while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
+          while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
 
-    // --- OVERLAY ---
-    const grad = ctx.createRadialGradient(
-      centerX,
-      centerY,
-      CANVAS_SIZE / 2 - 20,
-      centerX,
-      centerY,
-      CANVAS_SIZE / 2
-    );
-    grad.addColorStop(0, 'rgba(0,0,0,0)');
-    grad.addColorStop(0.8, 'rgba(0,0,0,0.8)');
-    grad.addColorStop(1, 'rgba(0,0,0,1)');
+          const inCone = Math.abs(angleDiff) < FLASHLIGHT_FOV / 2;
 
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+          if (dist < 1.5 || (inCone && hasLineOfSight(px, pz, ex, ez, map))) {
+            const { x: cx, y: cy } = toCanvas(ex, ez);
 
-    ctx.strokeStyle = '#333';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(centerX, centerY, CANVAS_SIZE / 2 - 2, 0, Math.PI * 2);
-    ctx.stroke();
-  };
+            ctx.fillStyle = '#ff0000';
+            ctx.shadowColor = '#ff0000';
+            ctx.shadowBlur = 15;
+            ctx.beginPath();
+            ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowBlur = 0;
+          }
+        });
+      }
 
-  useEffect(() => {
-    let animationFrameId: number;
+      // --- PLAYER ---
+      ctx.save();
+      ctx.translate(centerX, centerY);
+      ctx.rotate(pRot);
+
+      const coneGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, ZOOM * FLASHLIGHT_DISTANCE);
+      coneGrad.addColorStop(0, 'rgba(255, 255, 200, 0.15)');
+      coneGrad.addColorStop(1, 'rgba(255, 255, 200, 0)');
+
+      ctx.fillStyle = coneGrad;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.arc(0, 0, ZOOM * FLASHLIGHT_DISTANCE, -FLASHLIGHT_FOV / 2, FLASHLIGHT_FOV / 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#00ff00';
+      ctx.beginPath();
+      ctx.moveTo(6, 0);
+      ctx.lineTo(-4, 4);
+      ctx.lineTo(-4, -4);
+      ctx.fill();
+      ctx.restore();
+
+      // --- OVERLAY ---
+      const grad = ctx.createRadialGradient(
+        centerX,
+        centerY,
+        CANVAS_SIZE / 2 - 20,
+        centerX,
+        centerY,
+        CANVAS_SIZE / 2
+      );
+      grad.addColorStop(0, 'rgba(0,0,0,0)');
+      grad.addColorStop(0.8, 'rgba(0,0,0,0.8)');
+      grad.addColorStop(1, 'rgba(0,0,0,1)');
+
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
+
+      ctx.strokeStyle = '#333';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, CANVAS_SIZE / 2 - 2, 0, Math.PI * 2);
+      ctx.stroke();
+    };
 
     const renderLoop = () => {
       const canvas = canvasRef.current;
@@ -265,7 +253,7 @@ export const Minimap: React.FC<MinimapProps> = ({
 
     renderLoop();
     return () => cancelAnimationFrame(animationFrameId);
-  }, [map, playerPos, playerRotation, enemyTracker, staticItems]);
+  }, [map, playerPos, playerRotation, enemyTracker, staticItems, FLASHLIGHT_FOV]);
 
   const labelStyle: React.CSSProperties = {
     position: 'absolute',

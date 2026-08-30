@@ -44,15 +44,12 @@ export interface PlayerStats {
   equippedTalismans: string[];
 }
 
+export type MonsterType = 'skeleton' | 'orc2' | 'orc3' | 'vampire1' | 'vampire_boss';
+
 export type InventoryItem = ItemDef & { count: number };
 
 export type StatusEffectType =
-  | 'bleed'
-  | 'poison'
-  | 'stun'
-  | 'weakness'
-  | 'vulnerable'
-  | 'buff_damage';
+  'bleed' | 'poison' | 'stun' | 'weakness' | 'vulnerable' | 'buff_damage';
 
 export interface StatusEffect {
   id: string;
@@ -84,10 +81,33 @@ export interface SpriteConfig {
   frameDuration?: number;
 }
 
+export interface EnemyAttackDef {
+  id: string;
+  name: string;
+  damageMod: number;
+  accuracyMod?: number;
+  requiredPartId?: string;
+  requiredAnyParts?: string[]; // If any of these parts are severed, the attack is disabled
+  requiredAllParts?: string[]; // If all of these parts are severed, the attack is disabled
+  // Frame Pacing & Easing
+  speedMultiplier?: number; // e.g., 1.5 for Quick Strike
+  pauseFrame?: number; // Frame index to freeze on (e.g., Frame 5 for heavy wind-up)
+  pauseDurationMs?: number; // Freeze duration in ms (e.g., 1200ms)
+  // Camera & Effects
+  cameraZoom?: boolean; // Triggers push-in on the sprite
+  screenShake?: number; // Shake intensity on hit frame
+  // VFX Decoupling
+  projectileType?: 'blood_orb' | 'cursed_flail' | 'shadow_bolt';
+  projectileFrame?: number; // Frame index where projectile spawns
+  isRanged?: boolean;
+}
+
 export interface EnemyDef {
   id: string;
   name: string;
+  hasMask?: boolean;
   tier: 'common' | 'elite' | 'boss';
+  attacks: EnemyAttackDef[];
   parts: BodyPart[]; // The template for this enemy's body
   baseStats: {
     attack: number;
@@ -113,6 +133,9 @@ export interface CombatEnemyInstance {
   name: string;
   hp: number;
   maxHp: number;
+  attack: number;
+  defense: number;
+  speed: number;
   parts: BodyPart[];
   statusEffects: StatusEffect[];
 

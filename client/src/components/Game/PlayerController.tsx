@@ -30,7 +30,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
     if (groupRef.current && playerRef.current) {
       groupRef.current.position.copy(playerRef.current);
     }
-  }, []);
+  }, [playerRef]);
 
   const prevInteract = useRef(false);
 
