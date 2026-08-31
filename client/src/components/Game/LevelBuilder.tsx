@@ -15,6 +15,7 @@ import { Bonfire } from './Bonfire';
 import { LootDrop } from './LootDrop';
 import { ITEM_REGISTRY } from '../../data/ItemRegistry';
 import type { MonsterType } from '../../types/GameTypes';
+import { ENEMIES } from '../../data/Enemies';
 
 // --- STATIC HELPERS ---
 
@@ -403,6 +404,10 @@ export const LevelBuilder: React.FC<LevelBuilderProps> = ({
         const enemyConfig = ENEMY_TILE_CONFIG[tile];
         if (enemyConfig) {
           const enemyKey = `${enemyConfig.prefix}-${x}-${z}`;
+
+          // Look up the base enemy definition to grab its default behavior
+          const baseEnemyDef = ENEMIES[enemyConfig.type.toUpperCase()];
+
           if (!deadEnemyIds.has(enemyKey)) {
             list.push(
               <group key={`mon-${x}-${z}`} position={[0, 0.01, 0]}>
@@ -411,6 +416,7 @@ export const LevelBuilder: React.FC<LevelBuilderProps> = ({
                   type={enemyConfig.type}
                   startX={x}
                   startZ={z}
+                  behavior={baseEnemyDef?.defaultBehavior}
                   playerPos={playerPos.current}
                   onCombatStart={() => onCombatStart(enemyKey)}
                   enemyTracker={enemyTracker}

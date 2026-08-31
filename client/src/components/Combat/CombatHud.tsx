@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion } from 'framer-motion';
 import type { InventoryItem } from '../../types/GameTypes';
 import { SKILL_DATABASE } from '../../data/Skills';
-import { WEAPON_TYPES, WEAPON_ATTACKS } from '../../data/WeaponRegistry';
+import { WEAPON_ATTACKS, WEAPON_TYPES } from '../../data/WeaponRegistry';
 import { getSeverEscalationBonus } from '../../managers/CombatLogic';
 import { useCombatStore } from '../../hooks/useCombatStore';
 import { usePlayerStore } from '../../hooks/usePlayerStore';
@@ -22,18 +22,11 @@ interface CombatMenuOption {
   color?: string;
 }
 
-// Skills always available regardless of what's equipped from the tree —
-// these are the starting-loadout basic/heavy attacks, shown alongside
-// whatever the player has equipped from SKILL_TREE.
 const BASE_SKILL_IDS = ['quick_attack', 'heavy_attack'];
-
-const getEquippedWeaponId = (inventory: InventoryItem[]) => {
-  const weapon = inventory.find((i: InventoryItem) => i.type === 'weapon');
-  return weapon ? weapon.id : 'rusty_sword';
-};
 
 export const CombatHud: React.FC<CombatHudProps> = ({ onLeave, inventory: propInventory }) => {
   const storeInventory = usePlayerStore((state) => state.inventory);
+  const equippedWeaponId = usePlayerStore((state) => state.equippedWeaponId);
   const inventory: InventoryItem[] = propInventory || storeInventory;
 
   const turnState = useCombatStore((state) => state.turnState);
@@ -42,46 +35,27 @@ export const CombatHud: React.FC<CombatHudProps> = ({ onLeave, inventory: propIn
   const setRequestedAction = useCombatStore((state) => state.setRequestedAction);
   const setTargetPartId = useCombatStore((state) => state.setTargetPartId);
   const skillCooldowns = useCombatStore((state) => state.skillCooldowns);
+  const activeSkillId = useCombatStore((state) => state.activeSkillId);
+  const setActiveSkillId = useCombatStore((state) => state.setActiveSkillId);
 
   const [menuState, setMenuState] = useState<
-    | 'main'
-    | 'attack_select'
-    | 'items'
-    | 'move_select'
-    | 'skill_select'
-    | 'skill_target_select'
-    | 'item_select'
+    'main' | 'skill_select' | 'skill_target_select' | 'item_select'
   >('main');
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [prevCombatState, setPrevCombatState] = useState(turnState);
-  const activeSkillId = useCombatStore((state) => state.activeSkillId);
-  const setActiveSkillId = useCombatStore((state) => state.setActiveSkillId);
-  const setActiveWeaponAttackId = useCombatStore((state) => state.setActiveWeaponAttackId);
   const optionRefs = useRef<(HTMLButtonElement | null)[]>([]);
-
-  const weaponId = useMemo(() => getEquippedWeaponId(inventory), [inventory]);
-  const availableAttacks = useMemo(
-    () => WEAPON_TYPES[weaponId] || WEAPON_TYPES['rusty_sword'],
-    [weaponId]
-  );
-
-  const [selectedMove, setSelectedMove] = useState<string>(availableAttacks[0]);
 
   if (turnState !== prevCombatState) {
     setPrevCombatState(turnState);
     setSelectedIndex(0);
     if (turnState === 'player_turn') {
       setMenuState('main');
-      setActiveSkillId(null); // add
-      setActiveWeaponAttackId(null); // add
+      setActiveSkillId(null);
     }
   }
 
-  // Live-preview the hovered limb for both the weapon-attack targeting
-  // flow and the skill targeting flow — they share the same UI below.
   useEffect(() => {
-    const isTargeting = menuState === 'attack_select' || menuState === 'skill_target_select';
-    if (isTargeting && enemyInstance?.parts) {
+    if (menuState === 'skill_target_select' && enemyInstance?.parts) {
       const selectedPart = enemyInstance.parts[selectedIndex];
       if (selectedPart && !selectedPart.isSevered) {
         setTargetPartId(selectedPart.id);
@@ -92,6 +66,23 @@ export const CombatHud: React.FC<CombatHudProps> = ({ onLeave, inventory: propIn
       setTargetPartId(null);
     }
   }, [menuState, selectedIndex, enemyInstance, setTargetPartId]);
+
+  const activeAccMod = useMemo(() => {
+    if (!activeSkillId) return 0;
+    const skillDef = SKILL_DATABASE[activeSkillId];
+    if (skillDef?.scalesWithWeapon) {
+      const moveId = WEAPON_TYPES[equippedWeaponId]?.[skillDef.scalesWithWeapon];
+      const weaponAttack = moveId ? WEAPON_ATTACKS[moveId] : undefined;
+      return (weaponAttack?.accuracyMod ?? 0) + (skillDef.accuracyMod ?? 0);
+    }
+    return SKILL_DATABASE[activeSkillId]?.accuracyMod ?? 0;
+  }, [activeSkillId, equippedWeaponId]);
+
+  const activeCooldownsList = useMemo(() => {
+    return Object.entries(skillCooldowns)
+      .filter(([id, cd]) => cd > 0 && SKILL_DATABASE[id])
+      .map(([id, cd]) => ({ id, name: SKILL_DATABASE[id].name, cd }));
+  }, [skillCooldowns]);
 
   const currentOptions = useMemo<CombatMenuOption[]>(() => {
     if (turnState === 'victory')
@@ -106,14 +97,6 @@ export const CombatHud: React.FC<CombatHudProps> = ({ onLeave, inventory: propIn
         );
 
         return [
-          {
-            label: 'Attack',
-            action: () => {
-              setMenuState('move_select');
-              setSelectedIndex(0);
-            },
-            disabled: false,
-          },
           {
             label: 'Skills',
             action: () => {
@@ -130,93 +113,18 @@ export const CombatHud: React.FC<CombatHudProps> = ({ onLeave, inventory: propIn
             },
             disabled: !hasUsableItems,
           },
-          { label: 'Flee', action: () => {}, disabled: true },
-        ];
-      }
-
-      if (menuState === 'move_select') {
-        const attackOptions = availableAttacks
-          .map((attackId) => {
-            const def = WEAPON_ATTACKS[attackId];
-            if (!def) return null;
-
-            return {
-              label: def.name,
-              subtext: def.description,
-              action: () => {
-                setSelectedMove(attackId);
-                setActiveWeaponAttackId(attackId);
-                setMenuState('attack_select');
-                setSelectedIndex(0);
-              },
-              disabled: false,
-            };
-          })
-          .filter(Boolean) as CombatMenuOption[];
-
-        return [
-          ...attackOptions,
           {
-            label: 'Back',
-            action: () => {
-              setMenuState('main');
-              setSelectedIndex(0);
-            },
+            label: 'Flee',
+            subtext: '5% chance to escape',
+            action: () => setRequestedAction('flee'),
             disabled: false,
-            icon: '«',
-          },
-        ];
-      }
-
-      if (menuState === 'attack_select' && enemyInstance) {
-        const attackDef = WEAPON_ATTACKS[selectedMove];
-        const severedCount = enemyInstance.parts.filter((p) => p.isSevered).length;
-
-        const limbOptions = enemyInstance.parts.map((part) => {
-          const hitChance = Math.min(
-            100,
-            Math.max(0, 90 + part.hitChanceMod + (attackDef?.accuracyMod || 0))
-          );
-          const isDead = part.isSevered;
-          const partHasHp = part.hasHp !== false;
-          const effectiveSeverChance = part.severChance
-            ? Math.min(100, part.severChance + getSeverEscalationBonus(severedCount))
-            : 0;
-
-          const subtext = isDead
-            ? 'SEVERED'
-            : partHasHp
-              ? `${part.hp}/${part.maxHp} HP • ${hitChance}% Hit`
-              : `${hitChance}% Hit • ${effectiveSeverChance}% Sever`;
-
-          return {
-            label: part.name,
-            action: () => setRequestedAction(`${selectedMove}|${part.id}`),
-            disabled: isDead,
-            subtext,
-            icon: isDead ? 'X' : '◈',
-            color: part.hitChanceMod < 0 ? 'text-red-400' : 'text-green-400',
-          };
-        });
-
-        return [
-          ...limbOptions,
-          {
-            label: 'Back',
-            action: () => {
-              setMenuState('move_select');
-              setSelectedIndex(0);
-            },
-            disabled: false,
-            icon: '«',
+            color: 'text-red-400',
           },
         ];
       }
 
       if (menuState === 'skill_select' && playerStats) {
         const equipped = playerStats.equippedSkills || [];
-        // Base loadout skills always show up first, then whatever's
-        // equipped from the tree (deduped against the base ids).
         const skillIds = [
           ...BASE_SKILL_IDS,
           ...equipped.filter((id) => !BASE_SKILL_IDS.includes(id)),
@@ -234,20 +142,35 @@ export const CombatHud: React.FC<CombatHudProps> = ({ onLeave, inventory: propIn
             const cooldownLeft = skillCooldowns[skillId] || 0;
             const onCooldown = cooldownLeft > 0;
 
-            const costLabel = [
-              def.cost ? `${def.cost} MP` : '',
-              def.hpCostPercent ? `${def.hpCostPercent}% HP` : '',
-            ]
-              .filter(Boolean)
-              .join(' • ');
+            const costParts = [];
+            if (def.cost) costParts.push(`${def.cost}MP`);
+            if (def.hpCostPercent) costParts.push(`${def.hpCostPercent}%HP`);
+            if (def.cooldown && def.cooldown > 1) {
+              costParts.push(`${def.cooldown - 1}T Base`);
+            }
+            const costLabel = costParts.join(' • ') || 'FREE';
+
+            let badgeLabel = costLabel;
+            let colorClass = 'text-amber-600';
+
+            if (onCooldown) {
+              badgeLabel = `CD: ${cooldownLeft}T`;
+              colorClass = 'text-neutral-500';
+            } else if (!mpOk) {
+              badgeLabel = `NO MP (${def.cost})`;
+              colorClass = 'text-red-500';
+            } else if (!hpOk) {
+              badgeLabel = `NO HP`;
+              colorClass = 'text-red-500';
+            }
 
             return {
               label: def.name,
               subtext: onCooldown ? `Recovering — ${def.description}` : def.description,
-              badge: onCooldown ? `CD ${cooldownLeft}` : costLabel || undefined,
+              badge: badgeLabel,
               action: () => {
-                if (def.damageScale) {
-                  setActiveSkillId(skillId); // was setSelectedSkill(skillId)
+                if (def.damageScale || def.scalesWithWeapon) {
+                  setActiveSkillId(skillId);
                   setMenuState('skill_target_select');
                   setSelectedIndex(0);
                 } else {
@@ -256,6 +179,7 @@ export const CombatHud: React.FC<CombatHudProps> = ({ onLeave, inventory: propIn
               },
               disabled: !mpOk || !hpOk || onCooldown,
               icon: '★',
+              color: colorClass,
             };
           })
           .filter(Boolean) as CombatMenuOption[];
@@ -278,7 +202,7 @@ export const CombatHud: React.FC<CombatHudProps> = ({ onLeave, inventory: propIn
         const severedCount = enemyInstance.parts.filter((p) => p.isSevered).length;
 
         const limbOptions = enemyInstance.parts.map((part) => {
-          const hitChance = Math.min(100, Math.max(0, 90 + part.hitChanceMod));
+          const hitChance = Math.min(100, Math.max(0, 90 + part.hitChanceMod + activeAccMod));
           const isDead = part.isSevered;
           const partHasHp = part.hasHp !== false;
           const effectiveSeverChance = part.severChance
@@ -300,7 +224,7 @@ export const CombatHud: React.FC<CombatHudProps> = ({ onLeave, inventory: propIn
             disabled: isDead,
             subtext,
             icon: isDead ? 'X' : '◈',
-            color: part.hitChanceMod < 0 ? 'text-red-400' : 'text-green-400',
+            color: hitChance < 70 ? 'text-red-400' : 'text-green-400',
           };
         });
 
@@ -352,19 +276,16 @@ export const CombatHud: React.FC<CombatHudProps> = ({ onLeave, inventory: propIn
     turnState,
     menuState,
     enemyInstance,
-    selectedMove,
     playerStats,
-    availableAttacks,
     onLeave,
     setRequestedAction,
     setMenuState,
     setSelectedIndex,
-    setSelectedMove,
     inventory,
     skillCooldowns,
     activeSkillId,
     setActiveSkillId,
-    setActiveWeaponAttackId,
+    activeAccMod,
   ]);
 
   useEffect(() => {
@@ -391,10 +312,7 @@ export const CombatHud: React.FC<CombatHudProps> = ({ onLeave, inventory: propIn
           break;
         case 'Backspace':
           if (turnState === 'player_turn') {
-            if (menuState === 'attack_select') {
-              setMenuState('move_select');
-              setSelectedIndex(0);
-            } else if (menuState === 'skill_target_select') {
+            if (menuState === 'skill_target_select') {
               setMenuState('skill_select');
               setSelectedIndex(0);
             } else if (menuState !== 'main') {
@@ -410,11 +328,6 @@ export const CombatHud: React.FC<CombatHudProps> = ({ onLeave, inventory: propIn
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [currentOptions, selectedIndex, turnState, menuState, setMenuState, setSelectedIndex]);
 
-  // Previously, longer menus (e.g. skill_select with 5+ entries) could
-  // push the currently-selected row out of the visible list area with no
-  // indication it had happened — the only way to see it was to manually
-  // scroll. Now the selected row is kept in view automatically, whether
-  // selection changes via mouse hover or arrow keys.
   useEffect(() => {
     optionRefs.current[selectedIndex]?.scrollIntoView({ block: 'nearest' });
   }, [selectedIndex, menuState]);
@@ -428,24 +341,9 @@ export const CombatHud: React.FC<CombatHudProps> = ({ onLeave, inventory: propIn
   const playerMp = playerStats?.mp || 0;
   const playerMaxMp = playerStats?.maxMp || 100;
 
-  const isTargetingLimb =
-    (menuState === 'attack_select' || menuState === 'skill_target_select') &&
-    turnState === 'player_turn';
+  const isTargetingLimb = menuState === 'skill_target_select' && turnState === 'player_turn';
   const hoveredLimb =
     isTargetingLimb && enemyInstance?.parts ? enemyInstance.parts[selectedIndex] : null;
-  const activeAccuracyMod =
-    menuState === 'attack_select' ? WEAPON_ATTACKS[selectedMove]?.accuracyMod || 0 : 0;
-  const hoveredLimbHitChance = hoveredLimb
-    ? Math.min(100, Math.max(0, 90 + hoveredLimb.hitChanceMod + activeAccuracyMod))
-    : 0;
-  const hoveredLimbSeverChance =
-    hoveredLimb && hoveredLimb.severChance
-      ? Math.min(
-          100,
-          hoveredLimb.severChance +
-            getSeverEscalationBonus(enemyInstance?.parts.filter((p) => p.isSevered).length || 0)
-        )
-      : 0;
 
   return (
     <div className="absolute inset-0 pointer-events-none z-50">
@@ -479,9 +377,13 @@ export const CombatHud: React.FC<CombatHudProps> = ({ onLeave, inventory: propIn
                 Target: {hoveredLimb.name}
               </span>
               <span
-                className={`text-[10px] font-mono ${hoveredLimb.hitChanceMod < 0 ? 'text-red-400' : 'text-green-400'}`}
+                className={`text-[10px] font-mono ${
+                  Math.min(100, Math.max(0, 90 + hoveredLimb.hitChanceMod + activeAccMod)) < 70
+                    ? 'text-red-400'
+                    : 'text-green-400'
+                }`}
               >
-                {hoveredLimbHitChance}% HIT
+                {Math.min(100, Math.max(0, 90 + hoveredLimb.hitChanceMod + activeAccMod))}% HIT
               </span>
             </div>
 
@@ -489,9 +391,6 @@ export const CombatHud: React.FC<CombatHudProps> = ({ onLeave, inventory: propIn
               <div className="w-full flex justify-between items-center">
                 <span className="text-[10px] font-mono text-neutral-500 uppercase tracking-widest">
                   Vital — Sever Only
-                </span>
-                <span className="text-[10px] font-mono text-red-400">
-                  {hoveredLimbSeverChance}% SEVER
                 </span>
               </div>
             ) : (
@@ -506,7 +405,26 @@ export const CombatHud: React.FC<CombatHudProps> = ({ onLeave, inventory: propIn
         )}
       </div>
 
-      <div className="pointer-events-auto absolute bottom-0 right-0 w-full md:w-[54vw] max-w-[min(90vw,64rem)] h-[clamp(270px,22vh,380px)] flex">
+      <div className="pointer-events-auto absolute bottom-0 right-0 w-full md:w-[60vw] max-w-[min(90vw,64rem)] h-[clamp(270px,22vh,380px)] flex">
+        {/* Active Cooldowns Mini HUD Tracker */}
+        {activeCooldownsList.length > 0 && (
+          <div className="absolute bottom-[100%] right-0 mb-3 flex gap-2 items-end pointer-events-none">
+            {activeCooldownsList.map((item) => (
+              <div
+                key={item.id}
+                className="bg-neutral-900/95 border-t-2 border-amber-700 shadow-lg px-4 py-1.5 flex flex-col items-center justify-center rounded-sm"
+              >
+                <span className="text-[9px] font-mono uppercase tracking-widest text-neutral-400">
+                  {item.name}
+                </span>
+                <span className="text-sm font-serif text-amber-500 animate-pulse">
+                  {item.cd}T Left
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
         <style>{`
           .combat-menu-scroll::-webkit-scrollbar { width: 5px; }
           .combat-menu-scroll::-webkit-scrollbar-thumb { background: #57534e; border-radius: 2px; }
@@ -516,17 +434,13 @@ export const CombatHud: React.FC<CombatHudProps> = ({ onLeave, inventory: propIn
         <div className="w-[42%] bg-neutral-900/95 border-t-4 border-l-4 border-double border-neutral-700 p-4 flex flex-col shadow-2xl">
           <div className="mb-2 border-b border-neutral-800 pb-1.5 flex justify-between items-end">
             <span className="text-[10px] font-mono text-neutral-500 uppercase tracking-widest">
-              {menuState === 'attack_select'
+              {menuState === 'skill_target_select'
                 ? 'Target Limb'
-                : menuState === 'skill_target_select'
-                  ? 'Target Limb'
-                  : menuState === 'move_select'
-                    ? 'Select Style'
-                    : menuState === 'skill_select'
-                      ? 'Skills'
-                      : menuState === 'item_select'
-                        ? 'Items'
-                        : 'Command'}
+                : menuState === 'skill_select'
+                  ? 'Skills'
+                  : menuState === 'item_select'
+                    ? 'Items'
+                    : 'Command'}
             </span>
             {menuState !== 'main' && (
               <span className="text-[9px] text-neutral-600 font-mono tracking-wide">⌫ Back</span>
@@ -570,27 +484,36 @@ export const CombatHud: React.FC<CombatHudProps> = ({ onLeave, inventory: propIn
             <div className="w-1/3 flex items-center gap-2">
               <span className="text-xl font-serif text-neutral-300">Knight</span>
             </div>
-            <div className="w-2/3 pr-6">
-              <div className="flex items-center gap-1.5 mb-1">
-                <span className="text-[8px] font-mono text-neutral-600 uppercase tracking-widest w-5">
-                  Hp
+            <div className="w-2/3 pr-6 flex flex-col gap-2">
+              {/* HP Bar */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono font-bold text-red-400 uppercase tracking-wider w-6">
+                  HP
                 </span>
-                <div className="flex-1 h-2 bg-neutral-900 border border-neutral-700">
+                <div className="flex-1 h-4 bg-neutral-900 border border-neutral-700 relative overflow-hidden rounded-xs">
                   <motion.div
-                    className="h-full bg-red-800"
+                    className="h-full bg-red-600 shadow-[0_0_10px_rgba(220,38,38,0.6)]"
                     animate={{ width: `${(playerHp / playerMaxHp) * 100}%` }}
                   />
+                  <span className="absolute inset-0 flex items-center justify-center text-[10px] font-mono font-bold text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
+                    {playerHp} / {playerMaxHp}
+                  </span>
                 </div>
               </div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-[8px] font-mono text-neutral-600 uppercase tracking-widest w-5">
-                  Mp
+
+              {/* MP Bar */}
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono font-bold text-blue-400 uppercase tracking-wider w-6">
+                  MP
                 </span>
-                <div className="flex-1 h-1.5 bg-neutral-900 border border-neutral-700">
+                <div className="flex-1 h-4 bg-neutral-900 border border-neutral-700 relative overflow-hidden rounded-xs">
                   <motion.div
-                    className="h-full bg-blue-900/60"
+                    className="h-full bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.6)]"
                     animate={{ width: `${(playerMp / playerMaxMp) * 100}%` }}
                   />
+                  <span className="absolute inset-0 flex items-center justify-center text-[10px] font-mono font-bold text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
+                    {playerMp} / {playerMaxMp}
+                  </span>
                 </div>
               </div>
             </div>
@@ -604,7 +527,11 @@ export const CombatHud: React.FC<CombatHudProps> = ({ onLeave, inventory: propIn
                   onClick={opt.action}
                   onMouseEnter={() => setSelectedIndex(idx)}
                   className={`px-6 py-2 border font-serif tracking-widest uppercase transition-all shadow-lg text-sm
-                    ${idx === selectedIndex ? 'bg-amber-900/40 border-amber-500 text-amber-100 scale-105' : 'bg-neutral-800 border-neutral-600 text-neutral-400'}`}
+                    ${
+                      idx === selectedIndex
+                        ? 'bg-amber-900/40 border-amber-500 text-amber-100 scale-105'
+                        : 'bg-neutral-800 border-neutral-600 text-neutral-400'
+                    }`}
                 >
                   {opt.label}
                 </button>

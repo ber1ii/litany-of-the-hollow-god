@@ -1,9 +1,11 @@
+import type { MonsterBehavior } from '../hooks/useMonsterBehavior';
 import type { EnemyDef } from '../types/GameTypes';
 
-export const ENEMIES: Record<string, EnemyDef> = {
+export const ENEMIES: Record<string, EnemyDef & { defaultBehavior?: MonsterBehavior }> = {
   SKELETON: {
     id: 'SKELETON',
     name: 'Human Structure (Failed)',
+    defaultBehavior: { type: 'patrol', axis: 'x', range: 2 },
     hasMask: true,
     tier: 'common',
     aiBehavior: 'aggressive',
@@ -16,18 +18,18 @@ export const ENEMIES: Record<string, EnemyDef> = {
         frames: 13,
         columns: 13,
         rows: 1,
-        frameDuration: 0.075,
+        frameDuration: 0.16,
       },
       hurt: { textureUrl: '/sprites/combat/skeleton/hurt.png', frames: 3, columns: 3, rows: 1 },
       death: { textureUrl: '/sprites/combat/skeleton/death.png', frames: 12, columns: 12, rows: 1 },
     },
-    drops: ['bone_shard', 'rusty_sword'],
     attacks: [
       {
-        id: 'quick_thrust',
-        name: 'Bone Thrust',
+        id: 'flail_swing',
+        name: 'Flail Swing',
         damageMod: 0.85,
-        speedMultiplier: 1.4,
+        speedMultiplier: 1.0,
+        requiredAllParts: ['l_arm'],
       },
       {
         id: 'heavy_cleave',
@@ -37,13 +39,15 @@ export const ENEMIES: Record<string, EnemyDef> = {
         pauseDurationMs: 1000,
         cameraZoom: true,
         screenShake: 0.6,
+        requiredAllParts: ['l_arm', 'l_leg', 'r_leg'],
       },
       {
-        id: 'cursed_toss',
-        name: 'Cursed Flail Toss',
+        id: 'cursed_bolt',
+        name: 'Cursed Bolt',
         damageMod: 1.2,
-        projectileType: 'cursed_flail',
+        projectileType: 'cursed_bolt',
         projectileFrame: 6,
+        requiredAllParts: ['head'],
       },
     ],
     parts: [
@@ -62,17 +66,17 @@ export const ENEMIES: Record<string, EnemyDef> = {
       {
         id: 'torso',
         name: 'Ribcage',
-        hp: 50,
-        maxHp: 50,
+        hp: 140,
+        maxHp: 140,
         isSevered: false,
-        isVital: false,
+        isVital: true,
         hitChanceMod: 0,
         damageMultiplier: 1.0,
         isSeverable: false,
       },
       {
         id: 'l_arm',
-        name: 'Left Arm',
+        name: 'Flail Arm (Left)',
         hp: 20,
         maxHp: 20,
         isSevered: false,
@@ -82,7 +86,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
       },
       {
         id: 'r_arm',
-        name: 'Right Arm',
+        name: 'Sword Arm (Right)',
         hp: 25,
         maxHp: 25,
         isSevered: false,
@@ -116,6 +120,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
   ORC2: {
     id: 'ORC2',
     name: 'Ironhide Orc Guard',
+    defaultBehavior: { type: 'patrol', axis: 'z', range: 3 },
     hasMask: true,
     tier: 'common',
     aiBehavior: 'aggressive',
@@ -148,13 +153,13 @@ export const ENEMIES: Record<string, EnemyDef> = {
         rows: 4,
       },
     },
-    drops: ['orc_ear', 'iron_cleaver'],
     attacks: [
       {
         id: 'cleaver_chop',
         name: 'Iron Chop',
         damageMod: 1.0,
         speedMultiplier: 1.1,
+        requiredAllParts: ['l_arm', 'l_leg', 'r_leg'],
       },
       {
         id: 'heavy_crush',
@@ -164,13 +169,16 @@ export const ENEMIES: Record<string, EnemyDef> = {
         pauseDurationMs: 1200,
         cameraZoom: true,
         screenShake: 0.8,
+        requiredAllParts: ['r_arm', 'l_arm', 'l_leg', 'r_leg'],
       },
       {
-        id: 'shield_bash',
-        name: 'Shield Rush',
+        id: 'venom_toss',
+        name: 'Venom Toss',
         damageMod: 0.9,
         speedMultiplier: 1.6,
-        screenShake: 0.3,
+        projectileType: 'green_venom',
+        projectileFrame: 4,
+        requiredAnyParts: ['l_arm', 'r_arm'],
       },
     ],
     parts: [
@@ -189,33 +197,33 @@ export const ENEMIES: Record<string, EnemyDef> = {
       {
         id: 'torso',
         name: 'Plated Chest',
-        hp: 80,
-        maxHp: 80,
+        hp: 220,
+        maxHp: 220,
         isSevered: false,
-        isVital: false,
+        isVital: true,
         hitChanceMod: 0,
         damageMultiplier: 1.0,
         isSeverable: false,
       },
       {
         id: 'l_arm',
-        name: 'Shield Arm',
-        hp: 35,
-        maxHp: 35,
-        isSevered: false,
-        isVital: false,
-        hitChanceMod: -10,
-        damageMultiplier: 1.0,
-      },
-      {
-        id: 'r_arm',
-        name: 'Cleaver Arm',
+        name: 'Cleaver Arm (Screen Left)',
         hp: 40,
         maxHp: 40,
         isSevered: false,
         isVital: false,
         hitChanceMod: -10,
         damageMultiplier: 1.1,
+      },
+      {
+        id: 'r_arm',
+        name: 'Shield Arm (Screen Right)',
+        hp: 35,
+        maxHp: 35,
+        isSevered: false,
+        isVital: false,
+        hitChanceMod: -10,
+        damageMultiplier: 1.0,
       },
       {
         id: 'l_leg',
@@ -243,11 +251,13 @@ export const ENEMIES: Record<string, EnemyDef> = {
   ORC3: {
     id: 'ORC3',
     name: 'Bloodrage Warlord',
+    defaultBehavior: { type: 'static', facing: 'S' },
     hasMask: true,
     tier: 'elite',
     aiBehavior: 'aggressive',
     baseStats: { attack: 24, defense: 10, speed: 2, maxHp: 220 },
-    scale: 4.0,
+    scale: 3.4,
+    yOffset: -0.35,
     sprites: {
       idle: {
         textureUrl: '/sprites/characters/orc3/orc3_idle_full.png',
@@ -275,13 +285,13 @@ export const ENEMIES: Record<string, EnemyDef> = {
         rows: 4,
       },
     },
-    drops: ['heavy_greataxe', 'blood_stone'],
     attacks: [
       {
         id: 'axe_swing',
         name: 'Executioner Swing',
         damageMod: 1.1,
         speedMultiplier: 1.0,
+        requiredAllParts: ['l_arm'],
       },
       {
         id: 'decapitate_sweep',
@@ -291,13 +301,24 @@ export const ENEMIES: Record<string, EnemyDef> = {
         pauseDurationMs: 1400,
         cameraZoom: true,
         screenShake: 1.0,
+        requiredAllParts: ['l_arm', 'r_arm', 'l_leg', 'r_leg'],
       },
       {
         id: 'earth_shaker',
         name: 'Earth Shaker',
         damageMod: 1.4,
         screenShake: 1.2,
+        cameraZoom: true,
         speedMultiplier: 0.8,
+        requiredAllParts: ['l_leg', 'r_leg'],
+      },
+      {
+        id: 'blood_spear',
+        name: 'Blood Spear',
+        damageMod: 1.2,
+        projectileType: 'blood_orb',
+        projectileFrame: 4,
+        requiredAnyParts: ['l_arm', 'r_arm'],
       },
     ],
     parts: [
@@ -316,19 +337,19 @@ export const ENEMIES: Record<string, EnemyDef> = {
       {
         id: 'torso',
         name: 'Heavy Armor',
-        hp: 120,
-        maxHp: 120,
+        hp: 380,
+        maxHp: 380,
         isSevered: false,
-        isVital: false,
+        isVital: true,
         hitChanceMod: 0,
         damageMultiplier: 0.9,
         isSeverable: false,
       },
       {
         id: 'l_arm',
-        name: 'Braced Arm',
-        hp: 55,
-        maxHp: 55,
+        name: 'Greataxe Arm (Screen Left)',
+        hp: 60,
+        maxHp: 60,
         isSevered: false,
         isVital: false,
         hitChanceMod: -12,
@@ -336,9 +357,9 @@ export const ENEMIES: Record<string, EnemyDef> = {
       },
       {
         id: 'r_arm',
-        name: 'Greataxe Arm',
-        hp: 60,
-        maxHp: 60,
+        name: 'Braced Arm (Screen Right)',
+        hp: 55,
+        maxHp: 55,
         isSevered: false,
         isVital: false,
         hitChanceMod: -12,
@@ -370,11 +391,13 @@ export const ENEMIES: Record<string, EnemyDef> = {
   VAMPIRE1: {
     id: 'VAMPIRE1',
     name: 'Nightfright Thrall',
+    defaultBehavior: { type: 'patrol', axis: 'x', range: 4 },
     hasMask: true,
     tier: 'common',
     aiBehavior: 'erratic',
     baseStats: { attack: 14, defense: 3, speed: 6, maxHp: 95 },
     scale: 3.0,
+    sanityDrainOnHit: 8,
     sprites: {
       idle: {
         textureUrl: '/sprites/characters/vampire1/Vampires2_Idle_full.png',
@@ -402,14 +425,13 @@ export const ENEMIES: Record<string, EnemyDef> = {
         rows: 4,
       },
     },
-    drops: ['vampire_fang', 'shadow_dust'],
     attacks: [
       {
         id: 'frenzied_claw',
         name: 'Frenzied Claw',
         damageMod: 0.8,
         speedMultiplier: 1.6,
-        requiredAnyParts: ['l_wing', 'r_wing'], // If either wing is severed, this attack is disabled
+        requiredAnyParts: ['l_wing', 'r_wing'],
       },
       {
         id: 'shadow_lunge',
@@ -419,7 +441,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
         pauseDurationMs: 900,
         cameraZoom: true,
         screenShake: 0.5,
-        requiredAllParts: ['l_leg', 'r_leg'], // If both legs are severed, this attack is disabled
+        requiredAllParts: ['l_leg', 'r_leg'],
       },
       {
         id: 'blood_orb',
@@ -445,10 +467,10 @@ export const ENEMIES: Record<string, EnemyDef> = {
       {
         id: 'torso',
         name: 'Cloaked Torso',
-        hp: 55,
-        maxHp: 55,
+        hp: 160,
+        maxHp: 160,
         isSevered: false,
-        isVital: false,
+        isVital: true,
         hitChanceMod: 0,
         damageMultiplier: 1.0,
         isSeverable: false,
@@ -499,11 +521,14 @@ export const ENEMIES: Record<string, EnemyDef> = {
   VAMPIRE_BOSS: {
     id: 'VAMPIRE_BOSS',
     name: 'Lord Malakor, Arch-Vampire',
+    defaultBehavior: { type: 'static', facing: 'S' },
     tier: 'boss',
     aiBehavior: 'defensive',
     hasMask: true,
     baseStats: { attack: 32, defense: 12, speed: 5, maxHp: 450 },
-    scale: 4.5,
+    scale: 3.5,
+    sanityDrainOnHit: 12,
+    yOffset: -0.45,
     sprites: {
       idle: {
         textureUrl: '/sprites/characters/vampire_boss/Vampires3_Idle_full.png',
@@ -531,13 +556,14 @@ export const ENEMIES: Record<string, EnemyDef> = {
         rows: 4,
       },
     },
-    drops: ['vampiric_crest', 'soul_gem', 'blood_blade'],
     attacks: [
       {
         id: 'sanguine_slash',
         name: 'Sanguine Slash',
         damageMod: 0.9,
+        cameraZoom: true,
         speedMultiplier: 1.5,
+        requiredAnyParts: ['l_wing', 'r_wing'],
       },
       {
         id: 'sanguine_decapitation',
@@ -547,6 +573,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
         pauseDurationMs: 1500,
         cameraZoom: true,
         screenShake: 1.0,
+        requiredAllParts: ['l_wing', 'r_wing', 'l_leg', 'r_leg'],
       },
       {
         id: 'blood_surge',
@@ -572,10 +599,10 @@ export const ENEMIES: Record<string, EnemyDef> = {
       {
         id: 'torso',
         name: 'Vampiric Heart',
-        hp: 250,
-        maxHp: 250,
+        hp: 750,
+        maxHp: 750,
         isSevered: false,
-        isVital: false,
+        isVital: true,
         hitChanceMod: 0,
         damageMultiplier: 1.0,
         isSeverable: false,

@@ -245,8 +245,10 @@ export const CombatEnemy: React.FC<CombatEnemyProps> = ({
     }
   };
 
+  const yOffset = def.yOffset || 0;
+
   return (
-    <group position={position}>
+    <group position={[position[0], position[1] + yOffset, position[2]]}>
       <CombatUnit
         texture={currentConfig.tex}
         frames={currentConfig.cfg.frames}
@@ -257,7 +259,7 @@ export const CombatEnemy: React.FC<CombatEnemyProps> = ({
         loop={action === 'idle'}
         onAnimEnd={onAnimEnd}
         onFrameChange={handleFrameChange}
-        position={[0, 0, 0]} // Position handled by parent group
+        position={[0, 0, 0]}
         height={def.scale}
         flip={true}
         customMaterialRef={materialRef}
@@ -272,8 +274,8 @@ export const CombatEnemy: React.FC<CombatEnemyProps> = ({
         }
       />
 
-      {/* Anatomical 3D Target Overlay */}
-      <AnatomicalTargetingOverlay enemyPosition={[0, 0, 0]} />
+      {/* Target Overlay matches the adjusted feet position */}
+      <AnatomicalTargetingOverlay enemyPosition={[0, 0.35, 0]} />
     </group>
   );
 };

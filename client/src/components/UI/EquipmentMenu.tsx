@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { PlayerStats, InventoryItem } from '../../types/GameTypes';
 import { SKILL_DATABASE } from '../../data/Skills';
 import { usePlayerStore } from '../../hooks/usePlayerStore';
@@ -27,6 +27,16 @@ export const EquipmentMenu: React.FC<EquipmentMenuProps> = ({
 
   const [activeTab, setActiveTab] = useState<MenuTab>('skills');
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Backspace' || e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
   const handleToggleSkill = (skillId: string) => {
     const isEquipped = stats.equippedSkills.includes(skillId);
     let nextEquipped: string[];
@@ -52,7 +62,6 @@ export const EquipmentMenu: React.FC<EquipmentMenuProps> = ({
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/95 font-serif">
       <div className="w-[800px] h-[600px] flex flex-col border border-neutral-800 bg-neutral-900 relative">
-        {/* HEADER */}
         <div className="flex border-b border-neutral-800">
           {['Weapons', 'Skills', 'Talismans'].map((tabLabel) => {
             const tabKey = tabLabel.toLowerCase() as MenuTab;
@@ -73,11 +82,9 @@ export const EquipmentMenu: React.FC<EquipmentMenuProps> = ({
           })}
         </div>
 
-        {/* CONTENT */}
         <div className="flex-1 p-8 overflow-hidden">
           {activeTab === 'skills' && (
             <div className="flex h-full gap-8">
-              {/* LEFT: EQUIPPED SLOTS */}
               <div className="w-1/3 flex flex-col gap-4">
                 <div className="text-xs text-neutral-500 uppercase tracking-widest mb-2">
                   Memory Slots ({stats.equippedSkills.length}/4)
@@ -118,7 +125,6 @@ export const EquipmentMenu: React.FC<EquipmentMenuProps> = ({
                 })}
               </div>
 
-              {/* RIGHT: AVAILABLE POOL */}
               <div className="flex-1 border-l border-neutral-800 pl-8 overflow-y-auto custom-scrollbar">
                 <div className="text-xs text-neutral-500 uppercase tracking-widest mb-4">
                   Unlocked Memories
@@ -202,11 +208,11 @@ export const EquipmentMenu: React.FC<EquipmentMenuProps> = ({
           )}
         </div>
 
-        {/* FOOTER */}
-        <div className="p-4 border-t border-neutral-800 flex justify-end">
+        <div className="p-4 border-t border-neutral-800 flex justify-between items-center text-xs text-neutral-600 font-mono">
+          <span>BACKSPACE / ESC to Leave</span>
           <button
             onClick={onClose}
-            className="px-6 py-2 border border-neutral-600 text-neutral-400 hover:text-white uppercase tracking-widest text-xs"
+            className="px-6 py-2 border border-neutral-600 text-neutral-400 hover:text-white uppercase tracking-widest font-serif"
           >
             Finish Preparation
           </button>

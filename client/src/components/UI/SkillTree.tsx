@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { SKILL_TREE } from '../../data/SkillTreeData';
 import { SKILL_DATABASE } from '../../data/Skills';
 import type { PlayerStats } from '../../types/GameTypes';
@@ -16,272 +16,221 @@ export const SkillTree: React.FC<SkillTreeProps> = ({ stats: propStats, onClose,
   const equipSkills = usePlayerStore((state) => state.equipSkills);
   const stats = propStats || storeStats;
 
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Derive the 4 unlockable tree skills
+  const availableSkillIds = useMemo(() => {
+    return ['divine_blessing', 'plunging_strike', 'blood_surge', 'weakening_strike'];
+  }, []);
 
-  const [scale, setScale] = useState(1);
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const [isDragging, setIsDragging] = useState(false);
-  const dragStart = useRef({ x: 0, y: 0 });
+  const [selectedIndex, setSelectedIndex] = useState(0);
 
-  const handleMouseDown = (e: React.MouseEvent) => {
-    setIsDragging(true);
-    dragStart.current = { x: e.clientX - offset.x, y: e.clientY - offset.y };
-  };
+  const handleUnlockSkill = useCallback(
+    (skillId: string, cost: number) => {
+      if (onUnlock) {
+        onUnlock(skillId, cost);
+      } else {
+        purchaseSkill(skillId);
+      }
+    },
+    [onUnlock, purchaseSkill]
+  );
 
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging) return;
-    setOffset({
-      x: e.clientX - dragStart.current.x,
-      y: e.clientY - dragStart.current.y,
-    });
-  };
+  const isEquipped = useCallback(
+    (skillId: string) => stats.equippedSkills.includes(skillId),
+    [stats.equippedSkills]
+  );
 
-  const handleMouseUp = () => setIsDragging(false);
+  const handleToggleEquip = useCallback(
+    (skillId: string) => {
+      if (isEquipped(skillId)) {
+        equipSkills(stats.equippedSkills.filter((id) => id !== skillId));
+      } else {
+        if (stats.equippedSkills.length < 4) {
+          equipSkills([...stats.equippedSkills, skillId]);
+        }
+      }
+    },
+    [isEquipped, stats.equippedSkills, equipSkills]
+  );
 
-  const handleZoom = (delta: number) => {
-    setScale((prev) => Math.min(2, Math.max(0.5, prev + delta)));
-  };
+  const getStatus = useCallback(
+    (id: string) => {
+      if (stats.unlockedSkills.includes(id)) return 'unlocked';
+      const cost = SKILL_TREE[id]?.cost ?? SKILL_DATABASE[id]?.cost ?? 100;
+      return stats.xp >= cost ? 'available' : 'expensive';
+    },
+    [stats.unlockedSkills, stats.xp]
+  );
 
-  // Skills cost XP. If the caller supplies onUnlock, that takes priority
-  // (matches the prop-overrides-store convention used elsewhere); otherwise
-  // this goes through the store's purchaseSkill action, which is the single
-  // source of truth for the affordability/prereq checks and the actual
-  // XP deduction — no more duplicating that logic here.
-  const handleUnlockSkill = (skillId: string, cost: number) => {
-    if (onUnlock) {
-      onUnlock(skillId, cost);
-    } else {
-      purchaseSkill(skillId);
-    }
-  };
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Backspace' || e.key === 'Escape') {
+        onClose();
+        return;
+      }
+      if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'ArrowLeft' || e.key === 'a') {
+        setSelectedIndex((prev) => (prev > 0 ? prev - 1 : availableSkillIds.length - 1));
+      }
+      if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'ArrowRight' || e.key === 'd') {
+        setSelectedIndex((prev) => (prev < availableSkillIds.length - 1 ? prev + 1 : 0));
+      }
+      if (e.key === 'Enter' || e.key === ' ') {
+        const currentId = availableSkillIds[selectedIndex];
+        if (!currentId) return;
+        const status = getStatus(currentId);
+        const cost = SKILL_TREE[currentId]?.cost ?? SKILL_DATABASE[currentId]?.cost ?? 100;
 
-  // Unlocking a skill (above) only adds it to unlockedSkills — CombatHud
-  // reads equippedSkills to decide what shows up as a usable button in
-  // combat, so an unlocked skill still needs to be equipped separately
-  // before you can actually try it out.
-  const isEquipped = (skillId: string) => stats.equippedSkills.includes(skillId);
+        if (status === 'available') {
+          handleUnlockSkill(currentId, cost);
+        } else if (status === 'unlocked') {
+          handleToggleEquip(currentId);
+        }
+      }
+    };
 
-  const handleToggleEquip = (skillId: string) => {
-    if (isEquipped(skillId)) {
-      equipSkills(stats.equippedSkills.filter((id) => id !== skillId));
-    } else {
-      equipSkills([...stats.equippedSkills, skillId]);
-    }
-  };
-
-  const visibleNodes = useMemo(() => {
-    // eslint-disable-next-line
-    return Object.entries(SKILL_TREE).filter(([_, node]) => {
-      return !node.requiredClass || node.requiredClass === stats.classId;
-    });
-  }, [stats.classId]);
-
-  const getStatus = (id: string) => {
-    if (stats.unlockedSkills.includes(id)) return 'unlocked';
-    const node = SKILL_TREE[id];
-    if (node.requiredClass && node.requiredClass !== stats.classId) return 'locked';
-    const canAfford = stats.xp >= node.cost;
-    const reqsMet =
-      node.requires.length === 0 || node.requires.every((r) => stats.unlockedSkills.includes(r));
-    if (!reqsMet) return 'locked';
-    return canAfford ? 'available' : 'expensive';
-  };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedIndex, availableSkillIds, onClose, getStatus, handleToggleEquip, handleUnlockSkill]);
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/90 font-serif">
-      <div className="w-[1000px] h-[700px] bg-neutral-950 border-2 border-neutral-800 flex shadow-2xl overflow-hidden relative">
-        <div
-          className="flex-1 relative bg-[#0a0a0a] overflow-hidden cursor-move"
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
-        >
-          <div
-            className="absolute inset-0 opacity-20 pointer-events-none"
-            style={{
-              backgroundImage: 'radial-gradient(#333 1px, transparent 1px)',
-              backgroundSize: `${40 * scale}px ${40 * scale}px`,
-              backgroundPosition: `${offset.x}px ${offset.y}px`,
-            }}
-          />
-
-          <div className="absolute top-4 left-4 flex gap-2 z-10">
-            <button
-              onClick={() => handleZoom(0.1)}
-              className="w-8 h-8 bg-neutral-800 border border-neutral-600 text-white hover:bg-neutral-700"
-            >
-              +
-            </button>
-            <button
-              onClick={() => handleZoom(-0.1)}
-              className="w-8 h-8 bg-neutral-800 border border-neutral-600 text-white hover:bg-neutral-700"
-            >
-              -
-            </button>
-            <button
-              onClick={() => {
-                setOffset({ x: 0, y: 0 });
-                setScale(1);
-              }}
-              className="px-3 h-8 bg-neutral-800 border border-neutral-600 text-white text-xs hover:bg-neutral-700"
-            >
-              RESET
-            </button>
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/95 font-serif p-8">
+      <div className="w-[900px] h-[620px] bg-neutral-950 border border-neutral-800 flex flex-col shadow-2xl relative overflow-hidden">
+        {/* HEADER */}
+        <div className="p-6 border-b border-neutral-800 flex justify-between items-center bg-neutral-900/50">
+          <div>
+            <h1 className="text-2xl font-serif text-amber-500 uppercase tracking-widest">
+              Learn Memories
+            </h1>
+            <p className="text-xs text-neutral-500 tracking-wider">
+              Spend Insight to unlock combat capabilities
+            </p>
           </div>
-
-          <div className="absolute top-4 right-4 text-neutral-500 text-xs uppercase tracking-widest pointer-events-none">
-            {stats.classId} Matrix
-          </div>
-
-          <div
-            className="absolute left-1/2 top-1/2 w-0 h-0"
-            style={{ transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})` }}
-          >
-            <svg className="absolute overflow-visible -translate-x-[500px] -translate-y-[500px] w-[1000px] h-[1000px] pointer-events-none">
-              {visibleNodes.map(([id, node]) =>
-                node.requires.map((reqId) => {
-                  const parent = SKILL_TREE[reqId];
-                  if (!parent) return null;
-                  const startX = 500 + parent.x * 150;
-                  const startY = 500 + parent.y * 150;
-                  const endX = 500 + node.x * 150;
-                  const endY = 500 + node.y * 150;
-                  return (
-                    <line
-                      key={`${reqId}-${id}`}
-                      x1={startX}
-                      y1={startY}
-                      x2={endX}
-                      y2={endY}
-                      stroke="#333"
-                      strokeWidth="2"
-                    />
-                  );
-                })
-              )}
-            </svg>
-
-            {visibleNodes.map(([id, node]) => {
-              const status = getStatus(id);
-              const isSelected = selectedId === id;
-              const def = SKILL_DATABASE[id];
-
-              if (!def) return null;
-
-              return (
-                <button
-                  key={id}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectedId(id);
-                  }}
-                  style={{
-                    transform: `translate(${node.x * 150}px, ${node.y * 150}px) rotate(45deg)`,
-                  }}
-                  className={`absolute w-12 h-12 -ml-6 -mt-6 border-2 transition-colors duration-200
-                    ${
-                      status === 'unlocked'
-                        ? 'border-amber-500 bg-amber-900/40 shadow-[0_0_20px_rgba(245,158,11,0.3)]'
-                        : status === 'available'
-                          ? 'border-neutral-400 bg-neutral-800 hover:border-white'
-                          : 'border-neutral-800 bg-neutral-900 opacity-60'
-                    }
-                    ${isSelected ? 'ring-2 ring-white scale-110 z-10' : 'z-0'}
-                  `}
-                >
-                  <div className="-rotate-45 flex items-center justify-center h-full text-lg">
-                    {status === 'locked' ? '🔒' : def.name[0]}
-                  </div>
-                </button>
-              );
-            })}
+          <div className="flex items-center gap-3 bg-black/60 px-4 py-2 border border-neutral-800 rounded">
+            <span className="text-xs text-neutral-500 uppercase tracking-widest">Insight</span>
+            <span className="text-2xl font-mono text-green-400">{stats.xp}</span>
+            <span className="text-xs text-neutral-600 font-mono">XP</span>
           </div>
         </div>
 
-        <div className="w-[320px] bg-neutral-900 border-l border-neutral-800 p-6 flex flex-col z-20 shadow-xl">
-          <div className="mb-8 border-b border-neutral-800 pb-4">
-            <div className="text-[10px] text-neutral-500 uppercase tracking-widest mb-1">
-              Available Insight
-            </div>
-            <div className="text-3xl font-mono text-green-400">
-              {stats.xp} <span className="text-sm text-neutral-600">XP</span>
-            </div>
-          </div>
+        {/* 2x2 SKILL CARDS GRID */}
+        <div className="flex-1 p-6 grid grid-cols-2 gap-4 bg-[#0a0a0a]">
+          {availableSkillIds.map((id, idx) => {
+            const def = SKILL_DATABASE[id];
+            if (!def) return null;
 
-          {selectedId ? (
-            <div className="flex-1 flex flex-col animate-fadeIn">
-              {(() => {
-                const def = SKILL_DATABASE[selectedId];
-                const cost = SKILL_TREE[selectedId].cost;
-                const status = getStatus(selectedId);
+            const cost = SKILL_TREE[id]?.cost ?? def.cost ?? 100;
+            const status = getStatus(id);
+            const isSelected = idx === selectedIndex;
+            const equipped = isEquipped(id);
 
-                return (
-                  <>
-                    <h2 className={`text-2xl font-serif mb-1 ${def.color}`}>{def.name}</h2>
-                    <div className="text-[10px] uppercase tracking-widest text-neutral-500 mb-6">
-                      {def.type} Skill
-                    </div>
-
-                    <div className="text-sm text-neutral-300 leading-relaxed italic mb-8 border-l-2 border-neutral-700 pl-3">
-                      "{def.description}"
-                    </div>
-
-                    <div className="mt-auto">
-                      <div className="flex justify-between items-center mb-4 text-xs uppercase tracking-widest text-neutral-500">
-                        <span>Unlock Cost</span>
-                        <span
-                          className={status === 'unlocked' ? 'text-amber-500' : 'text-neutral-300'}
-                        >
-                          {status === 'unlocked' ? 'OWNED' : `${cost} XP`}
+            return (
+              <div
+                key={id}
+                onClick={() => setSelectedIndex(idx)}
+                onMouseEnter={() => setSelectedIndex(idx)}
+                className={`p-5 border transition-all cursor-pointer flex flex-col justify-between relative group
+                  ${
+                    isSelected
+                      ? 'border-amber-500 bg-neutral-900/80 shadow-[0_0_15px_rgba(245,158,11,0.15)] scale-[1.01]'
+                      : 'border-neutral-800 bg-neutral-900/30 hover:border-neutral-700'
+                  }`}
+              >
+                {/* Header info */}
+                <div>
+                  <div className="flex justify-between items-start mb-2">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`text-[10px] font-mono px-2 py-0.5 uppercase tracking-wider rounded border ${
+                          status === 'unlocked'
+                            ? 'border-amber-900/50 text-amber-400 bg-amber-950/30'
+                            : 'border-neutral-800 text-neutral-500 bg-neutral-950'
+                        }`}
+                      >
+                        {def.type || 'Active'}
+                      </span>
+                      {equipped && (
+                        <span className="text-[10px] font-mono px-2 py-0.5 uppercase tracking-wider rounded border border-green-800 text-green-400 bg-green-950/30">
+                          Equipped
                         </span>
-                      </div>
-
-                      {status === 'available' && (
-                        <button
-                          onClick={() => handleUnlockSkill(selectedId, cost)}
-                          className="w-full py-3 border border-amber-600 bg-amber-900/20 text-amber-500 hover:bg-amber-600 hover:text-white transition-all uppercase tracking-widest text-xs"
-                        >
-                          Unlock Memory
-                        </button>
-                      )}
-                      {status === 'unlocked' && (
-                        <button
-                          onClick={() => handleToggleEquip(selectedId)}
-                          className={`w-full py-3 border transition-all uppercase tracking-widest text-xs
-                            ${
-                              isEquipped(selectedId)
-                                ? 'border-green-600 bg-green-900/20 text-green-400 hover:bg-green-600 hover:text-white'
-                                : 'border-neutral-600 bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
-                            }`}
-                        >
-                          {isEquipped(selectedId) ? 'Equipped — Click to Unequip' : 'Equip'}
-                        </button>
-                      )}
-                      {status === 'locked' && (
-                        <div className="w-full py-3 bg-neutral-950 text-neutral-600 border border-neutral-800 text-center text-xs uppercase tracking-widest">
-                          Locked
-                        </div>
-                      )}
-                      {status === 'expensive' && (
-                        <div className="w-full py-3 bg-neutral-950 text-red-900 border border-red-900/30 text-center text-xs uppercase tracking-widest">
-                          Insufficient XP
-                        </div>
                       )}
                     </div>
-                  </>
-                );
-              })()}
-            </div>
-          ) : (
-            <div className="flex-1 flex items-center justify-center text-neutral-600 text-sm italic">
-              Select a node to view details...
-            </div>
-          )}
+                    {def.cost !== undefined && (
+                      <span className="text-xs font-mono text-neutral-500">{def.cost} MP</span>
+                    )}
+                  </div>
 
+                  <h3 className={`text-xl font-serif mb-2 ${def.color || 'text-neutral-200'}`}>
+                    {def.name}
+                  </h3>
+
+                  <p className="text-xs text-neutral-400 italic leading-relaxed line-clamp-3">
+                    "{def.description}"
+                  </p>
+                </div>
+
+                {/* Footer Action */}
+                <div className="mt-4 pt-3 border-t border-neutral-800/60 flex justify-between items-center">
+                  <div className="text-xs font-mono">
+                    {status === 'unlocked' ? (
+                      <span className="text-amber-500 uppercase tracking-widest text-[10px]">
+                        Unlocked
+                      </span>
+                    ) : (
+                      <span className="text-neutral-400">
+                        Cost:{' '}
+                        <strong
+                          className={status === 'available' ? 'text-green-400' : 'text-red-500'}
+                        >
+                          {cost} XP
+                        </strong>
+                      </span>
+                    )}
+                  </div>
+
+                  {status === 'available' && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleUnlockSkill(id, cost);
+                      }}
+                      className="px-4 py-1.5 border border-amber-600/80 bg-amber-900/30 text-amber-300 hover:bg-amber-600 hover:text-white uppercase tracking-widest text-[11px] transition-all"
+                    >
+                      Unlock
+                    </button>
+                  )}
+
+                  {status === 'unlocked' && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggleEquip(id);
+                      }}
+                      className={`px-4 py-1.5 border text-[11px] uppercase tracking-widest transition-all ${
+                        equipped
+                          ? 'border-green-800 text-green-400 hover:border-red-800 hover:text-red-400'
+                          : 'border-neutral-700 text-neutral-300 hover:border-neutral-500'
+                      }`}
+                    >
+                      {equipped ? 'Unequip' : 'Equip'}
+                    </button>
+                  )}
+
+                  {status === 'expensive' && (
+                    <span className="text-[10px] text-neutral-600 uppercase tracking-wider font-mono">
+                      Locked (Needs XP)
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* FOOTER */}
+        <div className="p-4 border-t border-neutral-800 bg-neutral-900/50 flex justify-between items-center text-xs text-neutral-500 font-mono">
+          <div>WASD / Arrows to Navigate • ENTER to Select • BACKSPACE / ESC to Leave</div>
           <button
             onClick={onClose}
-            className="mt-6 w-full py-3 border border-neutral-700 text-neutral-400 hover:text-white hover:border-neutral-500 uppercase tracking-widest text-xs transition-colors"
+            className="px-6 py-2 border border-neutral-700 text-neutral-400 hover:text-white hover:border-neutral-500 uppercase tracking-widest text-xs transition-colors font-serif"
           >
             Close Interface
           </button>

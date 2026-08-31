@@ -86,6 +86,7 @@ export const CombatUnit: React.FC<CombatUnitProps> = ({
 
     elapsed.current += delta;
 
+    // 1. Only handle frame ticking inside the timer
     if (elapsed.current >= frameDuration) {
       elapsed.current = 0;
 
@@ -96,28 +97,31 @@ export const CombatUnit: React.FC<CombatUnitProps> = ({
           currentLocalFrame.current = 0;
         } else {
           if (onAnimEnd) onAnimEnd();
-          return;
+          // Do not return early here so the final frame's UVs still update below
         }
       }
 
       onFrameChange?.(currentLocalFrame.current);
+    }
 
-      const absFrame = startFrame + currentLocalFrame.current;
-      const col = absFrame % columns;
-      const row = Math.floor(absFrame / columns);
+    // 2. ALWAYS calculate and apply the UV offset every frame.
+    // If the component re-renders with new columns/rows, this applies them instantly
+    // without waiting for the frameDuration timer to tick.
+    const absFrame = startFrame + currentLocalFrame.current;
+    const col = absFrame % columns;
+    const row = Math.floor(absFrame / columns);
 
-      const xOff = col * (1 / columns);
-      const yOff = 1 - (row + 1) * (1 / rows);
-      const finalXOff = flip ? xOff + 1 / columns : xOff;
+    const xOff = col * (1 / columns);
+    const yOff = 1 - (row + 1) * (1 / rows);
+    const finalXOff = flip ? xOff + 1 / columns : xOff;
 
-      if (customMaterialRef?.current) {
-        const uniforms = (customMaterialRef.current as THREE.ShaderMaterial).uniforms;
-        if (uniforms?.spriteOffset) {
-          uniforms.spriteOffset.value.set(finalXOff, yOff);
-        }
-      } else {
-        activeTexture.offset.set(finalXOff, yOff);
+    if (customMaterialRef?.current) {
+      const uniforms = (customMaterialRef.current as THREE.ShaderMaterial).uniforms;
+      if (uniforms?.spriteOffset) {
+        uniforms.spriteOffset.value.set(finalXOff, yOff);
       }
+    } else {
+      activeTexture.offset.set(finalXOff, yOff);
     }
   });
 

@@ -22,6 +22,7 @@ import { SanityEffects } from '../Effects/SanityEffects';
 import { HUD } from '../UI/HUD';
 import { usePlayerStore } from '../../hooks/usePlayerStore';
 import { Minimap } from './Minimap';
+import { DeathScreen } from '../UI/DeathScreen';
 
 const FOG_COLOR = '#040408';
 
@@ -175,7 +176,11 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
     setBonfireMenuOpen(false);
     setGameState('resting');
 
-    restAtBonfire();
+    restAtBonfire(
+      currentLevelId,
+      { x: playerPosRef.current.x, y: playerPosRef.current.y, z: playerPosRef.current.z },
+      playerRotationRef.current
+    );
 
     setTimeout(() => setGameState('roam'), 1000);
     addNotification('Restored Health, Mind & Flasks.');
@@ -213,6 +218,28 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
       equipItem(item.id);
       addNotification(`Equipped ${item.name}`);
     }
+  };
+
+  const handleRespawn = () => {
+    const store = usePlayerStore.getState();
+    store.respawn();
+
+    // Clear defeated enemies to reset the world
+    setDeadEnemyIds(new Set());
+    if (enemyTracker.current) enemyTracker.current.clear();
+
+    // Teleport player back to the last rested bonfire
+    if (store.lastRestedPos) {
+      playerPosRef.current.set(store.lastRestedPos.x, store.lastRestedPos.y, store.lastRestedPos.z);
+      playerRotationRef.current = store.lastRestedRot;
+    } else {
+      // Fallback if they died before ever resting
+      playerPosRef.current.set(3, 0, 25);
+      playerRotationRef.current = 0;
+    }
+
+    setGameState('roam');
+    addNotification('Awakened at the Bonfire.');
   };
 
   const handleInteract = (x: number, z: number) => {
@@ -376,6 +403,8 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
         !isLevelUpOpen &&
         !isSkillTreeOpen && <HUD stats={stats} notifications={notifications} />}
 
+      {gameState === 'gameover' && <DeathScreen onRespawn={handleRespawn} />}
+
       {gameState === 'combat' && (
         <CombatHud
           onLeave={(victory) => endCombat({ victory, hpRemaining: stats.hp })}
@@ -435,6 +464,8 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
             enemyId={currentEnemyId}
             themeId={currentThemeId}
             initialStats={stats}
+            onDefeat={() => endCombat({ victory: false, hpRemaining: 0 })}
+            onFlee={() => endCombat({ victory: false, hpRemaining: stats.hp })}
           />
         ) : null}
       </Canvas>

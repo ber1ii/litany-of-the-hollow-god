@@ -43,7 +43,7 @@ export const Monster: React.FC<MonsterProps> = ({
   type,
   startX,
   startZ,
-  behavior = { type: 'patrol', axis: 'x', range: 2, speed: 1.5 },
+  behavior = { type: 'static', facing: 'S' },
   playerPos,
   onCombatStart,
   enemyTracker,

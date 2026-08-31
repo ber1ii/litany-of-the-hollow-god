@@ -1,11 +1,6 @@
 import { getTileDef, TILE_IDS } from '../../data/TileRegistry';
 
 export const TILE_SIZE = 1;
-
-// TILE_TYPES now just re-exports TileRegistry's TILE_IDS — this used to be
-// a second, hand-maintained copy of the same id list, and the two drifted
-// (ORC2/ORC3/VAMPIRE1/VAMPIRE_BOSS ended up on ids already used by floor
-// tiles in TileRegistry). TileRegistry.ts is the single source now.
 export const TILE_TYPES = TILE_IDS;
 
 const MAP_WIDTH = 30;
@@ -45,19 +40,23 @@ map[12][22] = TILE_TYPES.DOOR_LOCKED_SILVER;
 
 // --- 3. ITEMS & ENEMIES ---
 
-// Room 1 (Bottom Left): Gold
+// Room 1 (Bottom Left): Gold & Bonfire for testing
 map[25][5] = TILE_TYPES.GOLD;
+map[24][5] = TILE_TYPES.BONFIRE;
+map[27][5] = TILE_TYPES.ORC2;
+
+// Room 1: Cursed Ground Patch (COBBLESTONE_5)
+map[26][4] = TILE_TYPES.COBBLESTONE_5;
+map[26][5] = TILE_TYPES.COBBLESTONE_5;
+map[26][6] = TILE_TYPES.COBBLESTONE_5;
 
 // Room 2 (Bottom Right): Vampire 1 & Key
-map[22][19] = TILE_TYPES.VAMPIRE1;
+map[22][19] = TILE_TYPES.VAMPIRE_BOSS;
 map[22][26] = TILE_TYPES.KEY_SILVER;
 
 // Props
 map[23][4] = TILE_TYPES.TORCH_WALL;
 map[23][6] = TILE_TYPES.CANDLE;
-
-// --- 4. BONFIRE (Top Left Area) ---
-map[5][5] = TILE_TYPES.BONFIRE;
 
 export const LEVEL_1_MAP = map;
 

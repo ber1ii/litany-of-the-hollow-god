@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { PlayerStats } from '../../types/GameTypes';
 import {
   usePlayerStore,
@@ -22,8 +22,6 @@ export const LevelUpMenu: React.FC<LevelUpMenuProps> = ({
   const applyLevelUpAllocation = usePlayerStore((state) => state.applyLevelUpAllocation);
   const stats = propStats || storeStats;
 
-  // Uncommitted draft state — nothing here touches the real store until
-  // "Confirm Level Up" is pressed, so "Leave" can discard freely.
   const [tempStats, setTempStats] = useState({ ...stats });
   const [currentGold, setCurrentGold] = useState(stats.gold);
   const [currentLevel, setCurrentLevel] = useState(stats.level);
@@ -38,6 +36,16 @@ export const LevelUpMenu: React.FC<LevelUpMenuProps> = ({
   });
 
   const costForNextLevel = getLevelUpCost(currentLevel);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Backspace' || e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
 
   const handleStatChange = (stat: LevelingStat, change: number) => {
     if (change > 0) {
@@ -173,7 +181,7 @@ export const LevelUpMenu: React.FC<LevelUpMenuProps> = ({
             className="border border-neutral-700 text-neutral-400 hover:bg-neutral-800 hover:text-white uppercase tracking-[0.2em] transition-all font-serif"
             style={{ padding: '1.5vmin', fontSize: '1.2vmin' }}
           >
-            Leave
+            Leave (ESC / BACKSPACE)
           </button>
         </div>
       </div>

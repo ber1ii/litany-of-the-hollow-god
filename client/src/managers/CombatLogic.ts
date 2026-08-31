@@ -1,7 +1,8 @@
-import { WEAPON_ATTACKS } from '../data/WeaponRegistry';
+import { WEAPON_ATTACKS, WEAPON_TYPES } from '../data/WeaponRegistry';
 import { SKILL_DATABASE } from '../data/Skills';
 import type { SkillDef } from '../data/Skills';
 import type { CombatEnemyInstance, PlayerStats, EnemyDef, StatusEffect } from '../types/GameTypes';
+import { SANITY_CONFIG } from '../data/SanityConfig';
 
 export interface AttackResult {
   hit: boolean;
@@ -11,7 +12,6 @@ export interface AttackResult {
   enemyState: CombatEnemyInstance;
   partSevered?: string;
   isFatal: boolean;
-  // HP restored to the player from an active lifesteal buff, if any.
   lifestealHeal?: number;
 }
 
@@ -20,18 +20,12 @@ export interface SkillResult {
   message: string;
   healAmount?: number;
   buffApplied?: StatusEffect;
+  enemyDebuffApplied?: StatusEffect;
   cost?: number;
-  hpCost?: number; // Added to support HP cost for skills like Blood Surge
-  // Present when the skill is a damage-dealing skill (quick_attack,
-  // heavy_attack, plunging_strike, ...) that was routed through the
-  // normal attack pipeline. CombatScene uses this to drive the same
-  // hit/miss/sever/crit visuals as a regular weapon attack.
+  hpCost?: number;
   attackResult?: AttackResult;
 }
 
-// The animation state CombatPlayer knows how to render. Kept here (next
-// to SkillDef) so CombatScene has a single source of truth for mapping a
-// skill's `animation` field to something the sprite renderer understands.
 export type PlayerCombatAction =
   'idle' | 'attack' | 'hurt' | 'pray' | 'die' | 'cast' | 'plunge' | 'blood_surge' | 'heal';
 
@@ -56,8 +50,6 @@ export const getSkillAnimation = (
   }
 };
 
-// Bonus % added to a part's base severChance, indexed by how many limbs
-// are already severed. Index 4+ (all limbs gone) is a guaranteed sever.
 const SEVER_ESCALATION_TABLE = [0, 10, 40, 80, 100];
 
 export const getSeverEscalationBonus = (severedLimbCount: number): number => {
@@ -77,21 +69,37 @@ export const rollSeverChance = (
   return Math.random() * 100 < effectiveChance;
 };
 
-// Decrements every player status effect's duration by 1 and drops any
-// that have expired. Call once per completed player turn.
 export const tickStatusEffects = (effects: StatusEffect[] = []): StatusEffect[] =>
   effects.map((e) => ({ ...e, duration: e.duration - 1 })).filter((e) => e.duration > 0);
 
-// Resolves an "attack-like" id to a normalized attack definition. Accepts
-// either a real WeaponRegistry id ('slash', 'stab', ...) or a
-// SKILL_DATABASE id with a damageScale (quick_attack, heavy_attack,
-// plunging_strike, ...), so calculatePlayerAttack can treat skills as
-// weapon attacks with damageMult = skillDef.damageScale.
-const resolveAttackDef = (attackId: string) => {
+// Tunable stat-scaling constants, kept together for easy balancing
+export const STAT_TUNING = {
+  CRIT_DAMAGE_BASE: 2.0, // base crit multiplier at 0 dexterity
+  CRIT_DAMAGE_PER_DEX: 0.015, // + this per point of dexterity
+  BUFF_POTENCY_PER_INT: 0.02, // + this fraction per point of intelligence, applied to buff.value / heals
+};
+
+const resolveAttackDef = (attackId: string, equippedWeaponId: string) => {
+  const skillDef = SKILL_DATABASE[attackId];
+
+  if (skillDef?.scalesWithWeapon) {
+    const moveId = WEAPON_TYPES[equippedWeaponId]?.[skillDef.scalesWithWeapon];
+    const weaponAttack = moveId ? WEAPON_ATTACKS[moveId] : undefined;
+    if (weaponAttack) {
+      return {
+        name: skillDef.name,
+        description: skillDef.description,
+        damageMult: weaponAttack.damageMult * (skillDef.damageScale ?? 1),
+        accuracyMod: weaponAttack.accuracyMod + (skillDef.accuracyMod ?? 0),
+        critMod: weaponAttack.critMod,
+        type: weaponAttack.type,
+      };
+    }
+  }
+
   const weaponAttack = WEAPON_ATTACKS[attackId];
   if (weaponAttack) return weaponAttack;
 
-  const skillDef = SKILL_DATABASE[attackId];
   if (skillDef && skillDef.damageScale) {
     return {
       name: skillDef.name,
@@ -146,13 +154,13 @@ export const CombatLogic = {
     player: PlayerStats,
     enemy: CombatEnemyInstance,
     targetPartId: string,
-    attackId: string
+    attackId: string,
+    equippedWeaponId: string
   ): AttackResult => {
     const nextEnemy = { ...enemy, parts: enemy.parts.map((p) => ({ ...p })) };
     const targetPart = nextEnemy.parts.find((p) => p.id === targetPartId);
 
-    // 1. Get Attack Definition (weapon attack OR a damage-skill treated as one)
-    const attackDef = resolveAttackDef(attackId);
+    const attackDef = resolveAttackDef(attackId, equippedWeaponId);
 
     if (!targetPart || targetPart.isSevered) {
       return {
@@ -168,11 +176,27 @@ export const CombatLogic = {
     const activeLimbs = nextEnemy.parts.filter((p) => !p.isSevered && !p.isVital);
     const isExecutePhase = activeLimbs.length === 0;
 
-    // --- 2. HIT CHANCE ---
     const baseAcc = 90;
-    const hitThreshold = isExecutePhase
-      ? 100
-      : baseAcc + targetPart.hitChanceMod + attackDef.accuracyMod;
+
+    // --- SANITY PENALTIES ---
+    const sanityRatio = player.sanity / player.maxSanity;
+    let accuracyPenalty = 0;
+    let agilityPenalty = 0;
+
+    if (sanityRatio < SANITY_CONFIG.LOW_THRESHOLD) {
+      const severity = (SANITY_CONFIG.LOW_THRESHOLD - sanityRatio) / SANITY_CONFIG.LOW_THRESHOLD;
+      accuracyPenalty = SANITY_CONFIG.ACCURACY_PENALTY_MAX * severity;
+      agilityPenalty = SANITY_CONFIG.AGILITY_PENALTY_MAX * severity;
+    }
+    // ------------------------
+
+    const effectiveAgility = Math.max(0, player.agility - agilityPenalty);
+    const agilityBonus = effectiveAgility * 0.5;
+
+    // Subtract accuracy penalty from the raw threshold
+    const rawThreshold =
+      baseAcc + targetPart.hitChanceMod + attackDef.accuracyMod + agilityBonus - accuracyPenalty;
+    const hitThreshold = isExecutePhase ? 100 : Math.min(95, Math.max(5, rawThreshold));
 
     const hitRoll = Math.random() * 100;
 
@@ -187,29 +211,22 @@ export const CombatLogic = {
       };
     }
 
-    // --- 3. DAMAGE CALCULATION ---
     let statDmg = player.attack;
-
-    // Magic Scaling
     if (attackDef.type === 'magic') {
       statDmg = player.intelligence * 2;
     }
 
-    // Weapon Multiplier (or skill damageScale, resolved above)
     let rawDmg = Math.floor(statDmg * attackDef.damageMult);
 
-    // Variance
     const variance = 1 + (Math.random() * 0.2 - 0.1);
     rawDmg = Math.floor(rawDmg * variance);
 
-    // Player Buffs
     const damageBuff = player.statusEffects.find((e) => e.type === 'buff_damage');
     if (damageBuff) {
       const multiplier = 1 + damageBuff.value / 100;
       rawDmg = Math.floor(rawDmg * multiplier);
     }
 
-    // Enemy Vulnerabilities
     const vulneDebuff = nextEnemy.statusEffects?.find((e) => e.type === 'vulnerable');
     if (vulneDebuff) {
       rawDmg = Math.floor(rawDmg * (1 + vulneDebuff.value / 100));
@@ -218,29 +235,30 @@ export const CombatLogic = {
     rawDmg = Math.floor(rawDmg * nextEnemy.damageTakenMultiplier);
     rawDmg = Math.floor(rawDmg * targetPart.damageMultiplier);
 
-    // Crit Logic
     let isCrit = false;
     const critChance = 5 + attackDef.critMod + player.dexterity / 2;
+    const critMultiplier =
+      STAT_TUNING.CRIT_DAMAGE_BASE + player.dexterity * STAT_TUNING.CRIT_DAMAGE_PER_DEX;
     if (isExecutePhase || Math.random() * 100 < critChance) {
       isCrit = true;
-      rawDmg = Math.floor(rawDmg * 2.0);
+      rawDmg = Math.floor(rawDmg * critMultiplier);
     }
 
-    // --- 4. APPLY DAMAGE ---
     const partHasHp = targetPart.hasHp !== false;
 
     if (partHasHp) {
       targetPart.hp = Math.max(0, targetPart.hp - rawDmg);
       nextEnemy.hp = Math.max(0, nextEnemy.hp - rawDmg);
     } else {
-      rawDmg = 0; // hpless parts (head) take no damage — only the sever roll matters
+      rawDmg = 0;
     }
 
-    // Lifesteal: heal the player for a % of the damage actually dealt if
-    // they have an active lifesteal buff (e.g. from Blood Surge).
     const lifestealEffect = player.statusEffects?.find((e) => e.type === 'lifesteal');
+    const intPotency = 1 + player.intelligence * STAT_TUNING.BUFF_POTENCY_PER_INT;
     const lifestealHeal =
-      lifestealEffect && rawDmg > 0 ? Math.floor(rawDmg * (lifestealEffect.value / 100)) : 0;
+      lifestealEffect && rawDmg > 0
+        ? Math.floor(rawDmg * ((lifestealEffect.value * intPotency) / 100))
+        : 0;
 
     let partSeveredName = undefined;
     let isFatal = nextEnemy.hp <= 0;
@@ -287,6 +305,7 @@ export const CombatLogic = {
     player: PlayerStats,
     enemy: CombatEnemyInstance,
     playerLevel: number,
+    equippedWeaponId: string,
     targetPartId?: string
   ): SkillResult => {
     const skillDef = SKILL_DATABASE[skillId];
@@ -295,55 +314,91 @@ export const CombatLogic = {
       return { success: false, message: 'Unknown skill' };
     }
 
-    // Standard MP Cost Check — applies to every skill with a `cost`.
     if (skillDef.cost && player.mp < skillDef.cost) {
       return { success: false, message: 'Not enough Mind!' };
     }
 
-    // --- Damage-dealing skills (quick_attack, heavy_attack, plunging_strike, ...) ---
-    // Routed through calculatePlayerAttack so hit chance, crit, sever
-    // rolls, and lifesteal all stay consistent with regular attacks.
-    if (skillDef.damageScale) {
+    const intPotency = 1 + player.intelligence * STAT_TUNING.BUFF_POTENCY_PER_INT;
+    let buffApplied: StatusEffect | undefined;
+    let enemyDebuffApplied: StatusEffect | undefined;
+
+    // Evaluate self buffs
+    if (skillDef.buff) {
+      const scaledValue = Math.floor(skillDef.buff.value * intPotency);
+      buffApplied = {
+        ...skillDef.buff,
+        value: scaledValue,
+        id: `${skillId}_${Date.now()}`,
+      };
+    }
+
+    // Evaluate enemy debuffs
+    if (skillDef.enemyDebuff) {
+      const scaledValue = Math.floor(skillDef.enemyDebuff.value * intPotency);
+      enemyDebuffApplied = {
+        ...skillDef.enemyDebuff,
+        value: scaledValue,
+        id: `${skillId}_${Date.now()}`,
+      };
+    }
+
+    // If skill executes an attack calculation
+    if (skillDef.damageScale !== undefined || skillDef.scalesWithWeapon) {
       if (!targetPartId) {
         return { success: false, message: 'No target selected!' };
       }
 
-      const attackResult = CombatLogic.calculatePlayerAttack(player, enemy, targetPartId, skillId);
+      const attackResult = CombatLogic.calculatePlayerAttack(
+        player,
+        enemy,
+        targetPartId,
+        skillId,
+        equippedWeaponId
+      );
+
+      let attackMsg = attackResult.message;
+      if (enemyDebuffApplied) {
+        attackMsg += ` (${skillDef.name} applied ${enemyDebuffApplied.name}!)`;
+      }
 
       return {
         success: true,
-        message: attackResult.message,
+        message: attackMsg,
         cost: skillDef.cost,
         attackResult,
+        buffApplied,
+        enemyDebuffApplied,
       };
     }
 
-    // --- Non-damage skills: heals and/or buffs, driven generically off the def ---
+    // Non-attack skills (heals, pure buffs/debuffs)
     let message = `Used ${skillDef.name}`;
     let healAmount = 0;
     let hpCost = 0;
-    let buffApplied: StatusEffect | undefined;
 
     if (skillDef.healBase !== undefined || skillDef.healLevelScale !== undefined) {
-      healAmount = (skillDef.healBase || 0) + (skillDef.healLevelScale || 0) * playerLevel;
+      const baseHeal = (skillDef.healBase || 0) + (skillDef.healLevelScale || 0) * playerLevel;
+      healAmount = Math.floor(baseHeal * intPotency);
       message = `Restored ${healAmount} Vitality!`;
     }
 
     if (skillDef.hpCostPercent) {
       hpCost = Math.floor(player.hp * (skillDef.hpCostPercent / 100));
-      // Guard: never let a self-cost skill reduce the caster to 0 or below.
       if (hpCost <= 0 || player.hp - hpCost <= 0) {
         return { success: false, message: 'Not enough Vitality to sacrifice!' };
       }
     }
 
-    if (skillDef.buff) {
-      buffApplied = { ...skillDef.buff, id: `${skillId}_${Date.now()}` };
+    if (buffApplied && !healAmount) {
       if (hpCost > 0) {
-        message = `Sacrificed ${hpCost} Vitality for ${skillDef.buff.name}!`;
-      } else if (!healAmount) {
+        message = `Sacrificed ${hpCost} Vitality for ${skillDef.buff!.name}!`;
+      } else {
         message = `${skillDef.name} takes effect!`;
       }
+    }
+
+    if (enemyDebuffApplied && !buffApplied && !healAmount) {
+      message = `${skillDef.name} weakens the enemy!`;
     }
 
     return {
@@ -351,6 +406,7 @@ export const CombatLogic = {
       message,
       healAmount: healAmount > 0 ? healAmount : undefined,
       buffApplied,
+      enemyDebuffApplied,
       cost: skillDef.cost,
       hpCost: hpCost > 0 ? hpCost : undefined,
     };

@@ -18,9 +18,6 @@ export const InventoryMenu: React.FC<InventoryMenuProps> = ({
 
   const inventory = propInventory || storeInventory;
 
-  // Stabilize identity across renders (was previously recreated every
-  // render, which made the useEffect below re-subscribe its keydown
-  // listener on every render too).
   const handleUseItem = useMemo(
     () => onUseItem || ((item: InventoryItem) => consumeItem(item.id)),
     [onUseItem, consumeItem]
@@ -33,8 +30,9 @@ export const InventoryMenu: React.FC<InventoryMenuProps> = ({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' || e.key === 'Tab') {
+      if (e.key === 'Escape' || e.key === 'Tab' || e.key === 'Backspace') {
         onClose();
+        return;
       }
       if (e.key === 'ArrowUp' || e.key === 'w') {
         setSelectedIndex((prev) => Math.max(0, prev - 1));
@@ -144,7 +142,7 @@ export const InventoryMenu: React.FC<InventoryMenuProps> = ({
                     handleUseItem(selectedItem);
                   }
                 }}
-                className="w-full bg-red-950/30 hover:bg-red-900 text-red-200 border border-red-900/50 hover:border-red-500 uppercase tracking-[0.2em] transition-all group"
+                className="w-full bg-red-950/30 hover:bg-red-900 text-red-200 border border-red-900/50 hover:border-red-500 uppercase tracking-[0.2em] transition-all group mb-[2vmin]"
                 style={{ padding: '2.5vmin', fontSize: '1.5vmin' }}
               >
                 <span className="group-hover:mr-[1vmin] transition-all">
@@ -152,13 +150,18 @@ export const InventoryMenu: React.FC<InventoryMenuProps> = ({
                 </span>
                 <span className="opacity-0 group-hover:opacity-100 transition-all">➢</span>
               </button>
+
+              <div className="text-neutral-600 font-mono text-[1.2vmin] text-center">
+                WASD to Navigate • ENTER to Action • BACKSPACE / ESC to Leave
+              </div>
             </>
           ) : (
             <div
-              className="flex items-center justify-center h-full text-neutral-700 italic"
+              className="flex items-center justify-center h-full text-neutral-700 italic flex-col gap-4"
               style={{ fontSize: '2vmin' }}
             >
-              Select an item...
+              <span>Select an item...</span>
+              <span className="text-neutral-600 font-mono text-xs">BACKSPACE / ESC to Leave</span>
             </div>
           )}
         </div>

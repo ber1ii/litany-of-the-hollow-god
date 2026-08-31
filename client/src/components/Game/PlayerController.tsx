@@ -5,6 +5,8 @@ import { Character } from './Character';
 import { useKeyboard } from '../../hooks/useKeyboard';
 import { TILE_SIZE, TILE_TYPES, generateCollisionGrid } from './MapData';
 import { getTileDef } from '../../data/TileRegistry';
+import { SANITY_CONFIG } from '../../data/SanityConfig';
+import { usePlayerStore } from '../../hooks/usePlayerStore';
 
 interface PlayerControllerProps {
   map: number[][];
@@ -307,7 +309,15 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
     const currentGridZ = Math.round(groupRef.current.position.z / TILE_SIZE);
 
     if (currentGridX !== prevTile.current.x || currentGridZ !== prevTile.current.z) {
+      // 1. Trigger the standard onStep (used for minimap discovery, etc.)
       onStep(currentGridX, currentGridZ);
+
+      // 2. Check for Sanity Drain tile
+      const currentTileId = map[currentGridZ]?.[currentGridX];
+      if (currentTileId === TILE_TYPES.COBBLESTONE_5) {
+        usePlayerStore.getState().modifySanity(-SANITY_CONFIG.DRAIN.CURSED_TILE_STEP);
+      }
+
       prevTile.current = { x: currentGridX, z: currentGridZ };
     }
   });

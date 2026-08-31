@@ -30,6 +30,6 @@ export const WEAPON_ATTACKS: Record<string, WeaponAttack> = {
   },
 };
 
-export const WEAPON_TYPES: Record<string, string[]> = {
-  rusty_sword: ['slash', 'heavy'],
+export const WEAPON_TYPES: Record<string, { quick: string; heavy: string }> = {
+  rusty_sword: { quick: 'slash', heavy: 'heavy' },
 };

@@ -42,6 +42,7 @@ export const applyStatPoints = (
       break;
     case 'mind':
       next.mind += points;
+      next.maxMp += points * 5;
       break;
     case 'agility':
       next.agility += points;
@@ -55,6 +56,16 @@ interface PlayerStore {
   inventory: InventoryItem[];
   equippedWeaponId: string;
   notifications: string[];
+  lastRestedBonfireId: string | null;
+  lastRestedPos: { x: number; y: number; z: number } | null;
+  lastRestedRot: number;
+
+  restAtBonfire: (
+    bonfireId?: string,
+    pos?: { x: number; y: number; z: number },
+    rot?: number
+  ) => void;
+  respawn: () => void;
 
   // Initializers & System Sync
   initializeFromSave: (stats: PlayerStats, inventory: InventoryItem[]) => void;
@@ -83,7 +94,6 @@ interface PlayerStore {
   modifyMp: (amount: number) => void;
   modifySanity: (amount: number) => void;
   addRewards: (xp: number, gold: number) => void;
-  restAtBonfire: () => void;
 
   // Progression
   // Commits a batch of leveling-stat purchases in one atomic write — used
@@ -104,6 +114,9 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
   inventory: [],
   equippedWeaponId: 'rusty_sword',
   notifications: [],
+  lastRestedBonfireId: null,
+  lastRestedPos: null,
+  lastRestedRot: 0,
 
   initializeFromSave: (stats, inventory) => {
     const weaponItem = inventory.find((i) => i.type === 'weapon');
@@ -252,7 +265,7 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       },
     })),
 
-  restAtBonfire: () =>
+  restAtBonfire: (bonfireId, pos, rot) =>
     set((state) => {
       const updatedStats = {
         ...state.stats,
@@ -269,11 +282,12 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
         return item;
       });
 
-      updatedStats.inventory = refreshedInventory;
-
       return {
-        stats: updatedStats,
+        stats: { ...updatedStats, inventory: refreshedInventory },
         inventory: refreshedInventory,
+        ...(bonfireId && { lastRestedBonfireId: bonfireId }),
+        ...(pos && { lastRestedPos: pos }),
+        ...(rot !== undefined && { lastRestedRot: rot }),
       };
     }),
 
@@ -300,6 +314,28 @@ export const usePlayerStore = create<PlayerStore>((set, get) => ({
       });
 
       return { stats: nextStats };
+    }),
+
+  respawn: () =>
+    set((state) => {
+      // Dark Souls style respawn resets vitals and flasks, but doesn't wipe inventory
+      const updatedStats = {
+        ...state.stats,
+        hp: state.stats.maxHp,
+        mp: state.stats.maxMp,
+        sanity: state.stats.maxSanity,
+        flaskCharges: state.stats.maxFlaskCharges,
+      };
+
+      const refreshedInventory = state.inventory.map((item) => {
+        if (item.type === 'flask') return { ...item, count: state.stats.maxFlaskCharges };
+        return item;
+      });
+
+      return {
+        stats: { ...updatedStats, inventory: refreshedInventory },
+        inventory: refreshedInventory,
+      };
     }),
 
   purchaseSkill: (skillId) => {

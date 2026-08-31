@@ -33,6 +33,10 @@ export const BonfireMenu: React.FC<BonfireMenuProps> = ({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Backspace' || e.key === 'Escape') {
+        onClose();
+        return;
+      }
       if (e.key === 'ArrowUp' || e.key === 'w') {
         setSelectedIndex((prev) => (prev > 0 ? prev - 1 : menuOptions.length - 1));
       }
@@ -45,7 +49,7 @@ export const BonfireMenu: React.FC<BonfireMenuProps> = ({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedIndex, menuOptions]);
+  }, [selectedIndex, menuOptions, onClose]);
 
   return (
     <div
@@ -53,7 +57,6 @@ export const BonfireMenu: React.FC<BonfireMenuProps> = ({
       style={{ paddingLeft: '15vmin' }}
     >
       <div className="flex flex-col items-start relative">
-        {/* Decorative Line */}
         <div
           className="absolute left-0 top-0 bottom-0 bg-neutral-800"
           style={{ width: '1px', left: '-4vmin' }}
@@ -84,7 +87,6 @@ export const BonfireMenu: React.FC<BonfireMenuProps> = ({
                   fontSize: '1.5vmin',
                 }}
               >
-                {/* Left Icon */}
                 <span
                   className={`absolute transition-opacity text-amber-600 ${
                     isSelected ? 'opacity-100' : 'opacity-0'
@@ -101,7 +103,6 @@ export const BonfireMenu: React.FC<BonfireMenuProps> = ({
 
                 {opt.label}
 
-                {/* Right Icon */}
                 <span
                   className={`absolute transition-opacity text-amber-600 ${
                     isSelected ? 'opacity-100' : 'opacity-0'
@@ -122,7 +123,7 @@ export const BonfireMenu: React.FC<BonfireMenuProps> = ({
 
         <div className="border-t border-neutral-800 mt-[4vmin] pt-[2vmin]">
           <div className="text-neutral-600 font-mono" style={{ fontSize: '1.2vmin' }}>
-            WASD to Navigate • ENTER to Select
+            WASD to Navigate • ENTER to Select • BACKSPACE / ESC to Leave
           </div>
         </div>
       </div>

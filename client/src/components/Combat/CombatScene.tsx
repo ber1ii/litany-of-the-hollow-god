@@ -19,12 +19,16 @@ import { CombatEnemy } from './CombatEnemy';
 import { CombatTorch } from './CombatTorch';
 import { SeveredLimbManager } from './SeveredLimbManager';
 import { CombatProjectile } from './CombatProjectile';
+import { CombatLogPanel } from './CombatLogPanel';
+import type { CombatActionLog } from './CombatLogPanel';
 import { usePlayerStore } from '../../hooks/usePlayerStore';
 
 interface CombatSceneProps {
   initialStats: PlayerStats;
   enemyId: string;
   themeId: string;
+  onDefeat?: () => void;
+  onFlee?: () => void;
 }
 
 interface DamagePopup {
@@ -34,7 +38,13 @@ interface DamagePopup {
   color: string;
 }
 
-export const CombatScene: React.FC<CombatSceneProps> = ({ initialStats, enemyId, themeId }) => {
+export const CombatScene: React.FC<CombatSceneProps> = ({
+  initialStats,
+  enemyId,
+  themeId,
+  onDefeat,
+  onFlee,
+}) => {
   // Store Subscriptions
   const {
     turnState,
@@ -49,6 +59,8 @@ export const CombatScene: React.FC<CombatSceneProps> = ({ initialStats, enemyId,
     resetCombat,
     setSkillCooldown,
     tickCooldowns,
+    initQueuedTurns,
+    consumeQueuedTurn,
   } = useCombatStore();
 
   // Local Visual State
@@ -57,6 +69,22 @@ export const CombatScene: React.FC<CombatSceneProps> = ({ initialStats, enemyId,
   const [popups, setPopups] = useState<DamagePopup[]>([]);
   const [playerAttackVariant, setPlayerAttackVariant] = useState<1 | 2>(1);
   const [playerEmphasis, setPlayerEmphasis] = useState<'none' | 'heavy' | 'plunge'>('none');
+
+  // Rolling Combat Log State
+  const [combatLogs, setCombatLogs] = useState<CombatActionLog[]>([]);
+
+  const pushActionLog = useCallback((actor: 'player' | 'enemy', message: string) => {
+    setCombatLogs((prev) =>
+      [
+        ...prev,
+        {
+          id: `${actor}_${Date.now()}_${Math.random()}`,
+          actor,
+          message,
+        },
+      ].slice(-2)
+    );
+  }, []);
 
   // Ranged Projectile State
   const [activeProjectile, setActiveProjectile] = useState<{
@@ -74,28 +102,16 @@ export const CombatScene: React.FC<CombatSceneProps> = ({ initialStats, enemyId,
   const enemyTimers = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   useEffect(() => {
-    // Capture the ref's current array into a local variable
     const activeTimers = enemyTimers.current;
 
     return () => {
       activeTimers.forEach(clearTimeout);
-      // Empty the array so it doesn't infinitely grow across a long session
       activeTimers.length = 0;
     };
   }, []);
 
-  // Shared coordinate memoized to prevent unnecessary re-renders in dependency arrays
   const enemyPosition = useMemo<[number, number, number]>(() => [1.5, -0.8, -1.5], []);
 
-  // Initialize Combat — runs once per enemy/level, not on every stats update.
-  // initialStats is read via a ref and intentionally excluded from the
-  // dependency array: it's the `stats` object from usePlayerStore, and the
-  // store produces a NEW object reference on every mutation (e.g. modifyHp
-  // when the enemy attacks). Depending on it here meant this effect re-ran
-  // mid-fight, silently rebuilding enemyInstance from scratch via
-  // createEnemyInstance — full HP restored, all severed limbs undone,
-  // right after every enemy attack. Capturing initialStats once in a ref
-  // and keying the effect only on enemyId fixes it.
   const initialStatsRef = useRef(initialStats);
   useEffect(() => {
     initialStatsRef.current = initialStats;
@@ -105,11 +121,13 @@ export const CombatScene: React.FC<CombatSceneProps> = ({ initialStats, enemyId,
     const baseId = enemyId.split('-')[0].toUpperCase();
     const def = ENEMIES[baseId] || ENEMIES['SKELETON'];
 
+    const newEnemyInstance = CombatLogic.createEnemyInstance(def, enemyId);
     setPlayerStats(initialStatsRef.current);
-    setEnemyInstance(CombatLogic.createEnemyInstance(def, enemyId));
+    setEnemyInstance(newEnemyInstance);
+    initQueuedTurns(initialStatsRef.current.agility, newEnemyInstance.speed);
 
     return () => resetCombat();
-  }, [enemyId, setEnemyInstance, setPlayerStats, resetCombat]);
+  }, [enemyId, setEnemyInstance, setPlayerStats, resetCombat, initQueuedTurns]);
 
   // Environment
   const theme = THEMES[themeId] || THEMES['DUNGEON'];
@@ -137,40 +155,68 @@ export const CombatScene: React.FC<CombatSceneProps> = ({ initialStats, enemyId,
     const timer = setTimeout(() => {
       const [type, payload] = requestedAction.split(':');
 
+      if (type === 'flee') {
+        setTurnState('player_acting');
+
+        // 5% chance to succeed (extremely rare bait)
+        const FLEE_CHANCE = 0.05;
+        const success = Math.random() < FLEE_CHANCE;
+
+        if (success) {
+          spawnText('ESCAPED!', [-1.5, 1.5, 2], '#3b82f6');
+          pushActionLog('player', 'Managed to escape combat!');
+          setRequestedAction(null);
+
+          setTimeout(() => {
+            onFlee?.();
+          }, 800);
+        } else {
+          spawnText('FLEE FAILED!', [-1.5, 1.5, 2], '#ef4444');
+          pushActionLog('player', 'Failed to flee! The enemy strikes!');
+          setRequestedAction(null);
+
+          // Punish the player by passing turn directly to enemy
+          setTimeout(() => {
+            if (!consumeQueuedTurn()) {
+              setTurnState('enemy_turn');
+            } else {
+              setTurnState('player_turn');
+            }
+          }, 800);
+        }
+        return;
+      }
+
       if (type === 'item') {
         setTurnState('player_acting');
         const itemDef = ITEM_REGISTRY[payload];
         const consumed = usePlayerStore.getState().consumeItem(payload);
 
         if (consumed) {
+          const itemName = itemDef?.name || 'Item';
           spawnText('USED ITEM', [-1.5, 1.5, 2], '#3b82f6');
-          // Play the animation tied to what this item actually does —
-          // 'heal' for Vitality restoration (Crimson Flask -> Health.png),
-          // falling back to 'cast' for anything else (e.g. Mind restore).
-          // Previously nothing here ever called setPlayerAction, so no
-          // animation played at all regardless of item type.
+          pushActionLog('player', `Used ${itemName}`);
           setPlayerAction(itemDef?.effect?.type === 'heal' ? 'heal' : 'cast');
-          // Merge in the fresh hp/mp/etc from usePlayerStore, but keep
-          // this combat's own statusEffects — usePlayerStore's copy never
-          // receives combat-only buffs (e.g. Blood Surge's lifesteal), so
-          // overwriting wholesale here would silently erase them.
           setPlayerStats((prev) => ({
             ...usePlayerStore.getState().stats,
             statusEffects: prev.statusEffects,
           }));
         } else {
           spawnText('CANNOT USE', [-1.5, 1.5, 2], '#ef4444');
+          pushActionLog('player', 'Failed to use item');
         }
         setRequestedAction(null);
         setTimeout(() => {
           setPlayerAction('idle');
-          // Tick status effects once per completed player turn, same
-          // choke point as the skill/attack path below.
           setPlayerStats((prev) => ({
             ...prev,
             statusEffects: tickStatusEffects(prev.statusEffects),
           }));
-          setTurnState('enemy_turn');
+          if (!consumeQueuedTurn()) {
+            setTurnState('enemy_turn');
+          } else {
+            setTurnState('player_turn');
+          }
         }, 900);
         return;
       }
@@ -199,27 +245,33 @@ export const CombatScene: React.FC<CombatSceneProps> = ({ initialStats, enemyId,
         setTimeout(() => {
           const pStats = { ...playerStats };
           const eStats = { ...enemyInstance };
-          const result = CombatLogic.executeSkill(skillId, pStats, eStats, pStats.level, limbId);
+          const equippedWeaponId = usePlayerStore.getState().equippedWeaponId;
+          const result = CombatLogic.executeSkill(
+            skillId,
+            pStats,
+            eStats,
+            pStats.level,
+            equippedWeaponId,
+            limbId
+          );
 
           if (!result.success) {
             spawnText(result.message, [-1.5, 1.5, 2], '#ef4444');
+            pushActionLog('player', result.message);
             setPlayerAction('idle');
-            setPlayerEmphasis('none'); // add
+            setPlayerEmphasis('none');
             setTurnState('player_turn');
             setRequestedAction(null);
             return;
           }
 
-          // Skill succeeded — start its cooldown (if it has one). Nothing
-          // previously called setSkillCooldown anywhere, so cooldowns
-          // existed in the store but no skill ever actually triggered one.
           if (skillDef.cooldown) {
             setSkillCooldown(skillId, skillDef.cooldown);
           }
 
+          pushActionLog('player', result.message);
+
           if (result.attackResult) {
-            // Damage-dealing skill (quick_attack, heavy_attack, plunging_strike)
-            // — mirror the same visuals as a normal weapon attack.
             const atk = result.attackResult;
             shakeIntensity.current = atk.isCrit ? 0.3 : 0.1;
 
@@ -239,17 +291,16 @@ export const CombatScene: React.FC<CombatSceneProps> = ({ initialStats, enemyId,
 
             const nextPlayer = { ...pStats };
             if (result.cost) {
-              usePlayerStore.getState().modifyMp(-result.cost); // add: sync global store
-              nextPlayer.mp = usePlayerStore.getState().stats.mp; // add: read back clamped value
+              usePlayerStore.getState().modifyMp(-result.cost);
+              nextPlayer.mp = usePlayerStore.getState().stats.mp;
             }
             if (atk.lifestealHeal) {
-              usePlayerStore.getState().modifyHp(atk.lifestealHeal); // add: same gap exists for lifesteal HP
-              nextPlayer.hp = usePlayerStore.getState().stats.hp; // add
+              usePlayerStore.getState().modifyHp(atk.lifestealHeal);
+              nextPlayer.hp = usePlayerStore.getState().stats.hp;
               spawnText(`+${atk.lifestealHeal}`, [-1.5, 2.0, 2], '#dc2626');
             }
             setPlayerStats(nextPlayer);
           } else {
-            // Utility skill (heal and/or buff)
             spawnText(result.message, [-1.5, 1.5, 2], '#4ade80');
 
             let hpDelta = 0;
@@ -260,20 +311,27 @@ export const CombatScene: React.FC<CombatSceneProps> = ({ initialStats, enemyId,
             if (result.hpCost) hpDelta -= result.hpCost;
 
             if (result.cost) {
-              usePlayerStore.getState().modifyMp(-result.cost); // add
-              pStats.mp = usePlayerStore.getState().stats.mp; // add
+              usePlayerStore.getState().modifyMp(-result.cost);
+              pStats.mp = usePlayerStore.getState().stats.mp;
             }
             if (result.buffApplied) {
               pStats.statusEffects = [...(pStats.statusEffects || []), result.buffApplied];
             }
+            if (result.enemyDebuffApplied) {
+              setEnemyInstance({
+                ...eStats,
+                statusEffects: [...(eStats.statusEffects || []), result.enemyDebuffApplied],
+              });
+              spawnText(result.enemyDebuffApplied.name, [1.5, 2.0, -1.5], '#a855f7');
+            }
 
             if (hpDelta !== 0) {
-              usePlayerStore.getState().modifyHp(hpDelta); // <-- sync global store
+              usePlayerStore.getState().modifyHp(hpDelta);
             }
 
             setPlayerStats({
               ...pStats,
-              hp: usePlayerStore.getState().stats.hp, // read back the clamped value
+              hp: usePlayerStore.getState().stats.hp,
             });
           }
 
@@ -286,12 +344,16 @@ export const CombatScene: React.FC<CombatSceneProps> = ({ initialStats, enemyId,
         setTurnState('player_acting');
 
         setTimeout(() => {
+          const equippedWeaponId = usePlayerStore.getState().equippedWeaponId;
           const result = CombatLogic.calculatePlayerAttack(
             playerStats,
             enemyInstance,
             limbId,
-            attackId
+            attackId,
+            equippedWeaponId
           );
+
+          pushActionLog('player', result.message);
 
           if (result.hit) {
             shakeIntensity.current = result.isCrit ? 0.3 : 0.1;
@@ -335,15 +397,25 @@ export const CombatScene: React.FC<CombatSceneProps> = ({ initialStats, enemyId,
     setRequestedAction,
     severLimb,
     setSkillCooldown,
+    consumeQueuedTurn,
+    pushActionLog,
+    onFlee,
   ]);
+
+  useEffect(() => {
+    if (turnState === 'defeat') {
+      const timer = setTimeout(() => {
+        onDefeat?.();
+      }, 1200); // 1.2s delay allows player death animation to play out
+      return () => clearTimeout(timer);
+    }
+  }, [turnState, onDefeat]);
 
   // Enemy Turn Execution
   useEffect(() => {
     if (turnState === 'enemy_turn' && popups.length > 0) return;
 
     if (turnState === 'enemy_turn' && enemyInstance && enemyInstance.hp > 0 && playerStats) {
-      // 1. LOCK THE STATE IMMEDIATELY.
-      // This stops React from cleaning up and re-triggering this effect during the delay.
       setTurnState('enemy_acting');
 
       const mainTimer = setTimeout(() => {
@@ -414,19 +486,23 @@ export const CombatScene: React.FC<CombatSceneProps> = ({ initialStats, enemyId,
 
           usePlayerStore.getState().modifyHp(-finalDmg);
 
+          pushActionLog(
+            'enemy',
+            `${enemyInstance.name} used ${attackDef.name || 'Struggle'} dealing ${finalDmg} damage!`
+          );
+
           const currentHp = usePlayerStore.getState().stats.hp;
-          // Merge fresh hp/mp/etc from usePlayerStore, but keep this
-          // combat's own statusEffects intact — see the item-branch
-          // comment above for why a wholesale overwrite here would
-          // silently erase active buffs like Blood Surge's lifesteal
-          // right after casting it, before the player gets a hit in.
           setPlayerStats((prev) => ({
             ...usePlayerStore.getState().stats,
             statusEffects: prev.statusEffects,
           }));
-          if (currentHp <= 0) setPlayerAction('die');
 
-          setPlayerAction('hurt');
+          if (currentHp <= 0) {
+            setPlayerAction('die');
+          } else {
+            setPlayerAction('hurt');
+          }
+
           spawnText(`-${finalDmg}`, [-1.5, 1.5, 2], '#ef4444');
         }, impactDelay);
         enemyTimers.current.push(impactTimer);
@@ -442,6 +518,7 @@ export const CombatScene: React.FC<CombatSceneProps> = ({ initialStats, enemyId,
     setPlayerStats,
     enemyPosition,
     popups.length,
+    pushActionLog,
   ]);
 
   // Animation Callbacks
@@ -450,33 +527,60 @@ export const CombatScene: React.FC<CombatSceneProps> = ({ initialStats, enemyId,
     setPlayerAction('idle');
     setPlayerEmphasis('none');
     if (turnState === 'player_acting' && enemyInstance?.hp !== 0) {
-      // Tick status-effect durations once per completed player turn
-      // (skill and attack both end up here via CombatPlayer's onAnimEnd).
       if (playerStats) {
         setPlayerStats({
           ...playerStats,
           statusEffects: tickStatusEffects(playerStats.statusEffects),
         });
       }
-      setTurnState('enemy_turn');
+      if (!consumeQueuedTurn()) {
+        setTurnState('enemy_turn');
+      } else {
+        setTurnState('player_turn');
+      }
     }
-  }, [playerAction, turnState, enemyInstance, playerStats, setPlayerStats, setTurnState]);
+  }, [
+    playerAction,
+    turnState,
+    enemyInstance,
+    playerStats,
+    setPlayerStats,
+    setTurnState,
+    consumeQueuedTurn,
+  ]);
 
   const onEnemyAnimEnd = useCallback(() => {
     if (enemyAction === 'death') return setTurnState('victory');
     setEnemyAction('idle');
+
     if (turnState === 'enemy_acting') {
-      // Previously cooldowns only ticked down in the rare branch where
-      // the enemy has no attacks left to use (see useCombatStore's
-      // triggerEnemyTurn) — a normal attack turn never reached this, so
-      // skill cooldowns effectively never counted down in most fights.
       tickCooldowns();
+      if (enemyInstance?.statusEffects?.length) {
+        setEnemyInstance({
+          ...enemyInstance,
+          statusEffects: tickStatusEffects(enemyInstance.statusEffects),
+        });
+      }
+
+      // Start of a new round. Re-evaluate speed and reset queued turns.
+      if (playerStats && enemyInstance) {
+        initQueuedTurns(playerStats.agility, enemyInstance.speed);
+      }
+
       setTurnState('player_turn');
     }
-  }, [enemyAction, turnState, setTurnState, tickCooldowns]);
+  }, [
+    enemyAction,
+    turnState,
+    enemyInstance,
+    playerStats,
+    setEnemyInstance,
+    setTurnState,
+    tickCooldowns,
+    initQueuedTurns,
+  ]);
 
   // --- Camera Reset Manager ---
-  // Only reset the camera when returning to the player's turn AND all popups have vanished
   useEffect(() => {
     if (turnState === 'player_turn' && popups.length === 0) {
       cameraTargetPos.current.copy(originalCamPos);
@@ -495,7 +599,7 @@ export const CombatScene: React.FC<CombatSceneProps> = ({ initialStats, enemyId,
       if (shakeIntensity.current < 0.01) shakeIntensity.current = 0;
     }
 
-    cameraLookAt.current.lerp(cameraLookAtTarget.current, 0.15); // replaced
+    cameraLookAt.current.lerp(cameraLookAtTarget.current, 0.15);
     state.camera.lookAt(cameraLookAt.current);
   });
 
@@ -504,6 +608,17 @@ export const CombatScene: React.FC<CombatSceneProps> = ({ initialStats, enemyId,
       <PerspectiveCamera makeDefault position={originalCamPos} fov={50} near={0.01} far={100} />
       <ambientLight intensity={0.6} color="#ffffff" />
       <directionalLight position={[2, 5, 2]} intensity={1.0} color="#ffffff" />
+
+      {/* HUD Log & Status Overlay */}
+      <Html fullscreen zIndexRange={[100, 0]} style={{ pointerEvents: 'none' }}>
+        <div className="absolute top-4 left-4 w-80 md:w-96 pointer-events-auto">
+          <CombatLogPanel
+            playerEffects={playerStats?.statusEffects || []}
+            enemyEffects={enemyInstance?.statusEffects || []}
+            recentActions={combatLogs}
+          />
+        </div>
+      </Html>
 
       <group rotation={[0, -0.05, 0]}>
         <mesh position={[0, 2, -6]}>
@@ -555,7 +670,7 @@ export const CombatScene: React.FC<CombatSceneProps> = ({ initialStats, enemyId,
             <motion.div
               initial={{ opacity: 0, y: 10, scale: 0.5 }}
               animate={{ opacity: [0, 1, 1, 0], y: [10, -50, -80], scale: [0.5, 1.5, 1] }}
-              transition={{ duration: 1.2, ease: 'easeOut' }} // <-- CHANGED from 2.5
+              transition={{ duration: 1.2, ease: 'easeOut' }}
               onAnimationComplete={() => removePopup(p.id)}
               className="text-4xl font-pixel pointer-events-none"
               style={{ color: p.color, textShadow: '4px 4px 0 #000' }}

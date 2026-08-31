@@ -1,5 +1,6 @@
 import type { ItemDef } from '../data/ItemRegistry';
 import type { ClassId } from '../data/Classes';
+import type { MonsterBehavior } from '../hooks/useMonsterBehavior';
 
 export interface PlayerStats {
   classId: ClassId;
@@ -87,7 +88,7 @@ export interface EnemyAttackDef {
   pauseDurationMs?: number;
   cameraZoom?: boolean;
   screenShake?: number;
-  projectileType?: 'blood_orb' | 'cursed_flail' | 'shadow_bolt';
+  projectileType?: 'blood_orb' | 'cursed_bolt' | 'shadow_bolt' | 'green_venom';
   projectileFrame?: number;
   isRanged?: boolean;
 }
@@ -106,14 +107,16 @@ export interface EnemyDef {
     maxHp: number;
   };
   scale: number;
+  sanityDrainOnHit?: number;
+  yOffset?: number;
   sprites: {
     idle: SpriteConfig;
     attack: SpriteConfig;
     hurt: SpriteConfig;
     death: SpriteConfig;
   };
-  drops: string[];
   aiBehavior: 'aggressive' | 'defensive' | 'erratic';
+  defaultBehavior?: MonsterBehavior;
 }
 
 export interface CombatEnemyInstance {
@@ -133,7 +136,7 @@ export interface CombatEnemyInstance {
 
 export const INITIAL_STATS: PlayerStats = {
   classId: 'KNIGHT',
-  hp: 100,
+  hp: 20,
   maxHp: 100,
   mp: 50,
   maxMp: 50,
