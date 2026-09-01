@@ -12,6 +12,7 @@ import { SKILL_DATABASE } from '../../data/Skills';
 import { ITEM_REGISTRY } from '../../data/ItemRegistry';
 import { ENEMIES } from '../../data/Enemies';
 import { useCombatStore } from '../../hooks/useCombatStore';
+import { AudioManager } from '../../managers/AudioManager';
 
 // Components
 import { CombatPlayer } from './CombatPlayer';
@@ -37,6 +38,77 @@ interface DamagePopup {
   position: [number, number, number];
   color: string;
 }
+
+interface ActiveProjectile {
+  id: string;
+  type: string;
+  startPos: [number, number, number];
+  targetPos: [number, number, number];
+  onHitCallback?: () => void;
+}
+
+// --- Combat Audio Helpers ---
+// Skeletons are "bone" enemies (different hit/sever timbre), everything else
+// currently in the roster is "flesh" (orcs, vampires).
+const BONE_ENEMIES = new Set(['SKELETON']);
+const isBoneEnemy = (defId: string) => BONE_ENEMIES.has(defId);
+const VAMPIRE_ENEMIES = new Set(['VAMPIRE1', 'VAMPIRE_BOSS']);
+
+// Windup sound per enemy attack id. Attacks with no dedicated sfx yet
+// (e.g. skeleton's flail_swing/heavy_cleave) are intentionally omitted —
+// add sounds for them to AudioManager's variations map and list them here.
+const ENEMY_ATTACK_SOUNDS: Record<string, { sound: string; volume?: number }> = {
+  cursed_bolt: { sound: 'skeleton-cursed-bolt' },
+  flail_swing: { sound: 'skeleton_light_attack' },
+  heavy_cleave: { sound: 'skeleton_heavy_attack' },
+  cleaver_chop: { sound: 'orc-cleaver-hit' },
+  heavy_crush: { sound: 'orc-cleaver-hit-heavy' },
+  venom_toss: { sound: 'orc2_acid_sizzle', volume: 2.0 },
+  cleaver_swing: { sound: 'orc-cleaver-hit' },
+  decapitate_sweep: { sound: 'orc-cleaver-hit-heavy' },
+  earth_shaker: { sound: 'orc2_earth_shaker' },
+  blood_spear: { sound: 'blood-orb' },
+  frenzied_claw: { sound: 'vampire-frenzied-claw' },
+  shadow_lunge: { sound: 'vampire-shadow-lunge' },
+  blood_orb: { sound: 'blood-orb' },
+  sanguine_slash: { sound: 'vampire-frenzied-claw' },
+  sanguine_decapitation: { sound: 'vampire-boss-sanguine-decapitation' },
+  blood_surge: { sound: 'blood-orb' },
+};
+
+const playEnemyAttackSound = (attackId: string, position: [number, number, number]) => {
+  const entry = ENEMY_ATTACK_SOUNDS[attackId];
+  if (!entry) return;
+  AudioManager.play(entry.sound, { category: 'sfx', position, volume: entry.volume ?? 1.0 });
+};
+
+const playPlayerHitSound = (
+  defId: string,
+  isHeavy: boolean,
+  position: [number, number, number]
+) => {
+  const soundName = isBoneEnemy(defId)
+    ? 'sword-hit-skeleton'
+    : isHeavy
+      ? 'sword-hit-heavy'
+      : 'sword-hit-flesh';
+  const volume = isBoneEnemy(defId) ? 1.5 : isHeavy ? 1.65 : 1.5;
+  AudioManager.play(soundName, { category: 'sfx', position, volume });
+};
+
+const playSeverSound = (defId: string, partId: string, position: [number, number, number]) => {
+  const bone = isBoneEnemy(defId);
+  const isHead = partId === 'head';
+  const soundName = isHead
+    ? bone
+      ? 'sword-sever-head-bone'
+      : 'sword-sever-head-flesh'
+    : bone
+      ? 'sword-sever-bone'
+      : 'sword-sever-limb';
+  AudioManager.play(soundName, { category: 'sfx', position, volume: 1.1 });
+  AudioManager.play('flesh_hit_floor', { category: 'sfx', position, volume: 0.8 });
+};
 
 export const CombatScene: React.FC<CombatSceneProps> = ({
   initialStats,
@@ -86,12 +158,8 @@ export const CombatScene: React.FC<CombatSceneProps> = ({
     );
   }, []);
 
-  // Ranged Projectile State
-  const [activeProjectile, setActiveProjectile] = useState<{
-    type: string;
-    startPos: [number, number, number];
-    targetPos: [number, number, number];
-  } | null>(null);
+  // Multi-Projectile Scene State
+  const [projectiles, setProjectiles] = useState<ActiveProjectile[]>([]);
 
   // Dynamic Camera Refs
   const shakeIntensity = useRef(0);
@@ -110,7 +178,21 @@ export const CombatScene: React.FC<CombatSceneProps> = ({
     };
   }, []);
 
+  // Combat music/ambience: starts when the scene mounts, stops on the way out
+  // (defeat, victory, or fleeing all unmount CombatScene from the parent).
+  useEffect(() => {
+    AudioManager.updateListenerPosition([0, 0, 0], [0, 0, -1]);
+    AudioManager.playBGM('combat-ost', 1.2);
+    AudioManager.playAmbient('torch-bonfire-crackle', 1.2);
+
+    return () => {
+      AudioManager.stopBGM();
+      AudioManager.stopAmbient();
+    };
+  }, []);
+
   const enemyPosition = useMemo<[number, number, number]>(() => [1.5, -0.8, -1.5], []);
+  const playerPosition = useMemo<[number, number, number]>(() => [-1.5, -0.8, 2], []);
 
   const initialStatsRef = useRef(initialStats);
   useEffect(() => {
@@ -125,6 +207,10 @@ export const CombatScene: React.FC<CombatSceneProps> = ({
     setPlayerStats(initialStatsRef.current);
     setEnemyInstance(newEnemyInstance);
     initQueuedTurns(initialStatsRef.current.agility, newEnemyInstance.speed);
+
+    if (VAMPIRE_ENEMIES.has(newEnemyInstance.defId)) {
+      AudioManager.play('vampire-spawn-in', { category: 'sfx' });
+    }
 
     return () => resetCombat();
   }, [enemyId, setEnemyInstance, setPlayerStats, resetCombat, initQueuedTurns]);
@@ -157,8 +243,6 @@ export const CombatScene: React.FC<CombatSceneProps> = ({
 
       if (type === 'flee') {
         setTurnState('player_acting');
-
-        // 5% chance to succeed (extremely rare bait)
         const FLEE_CHANCE = 0.05;
         const success = Math.random() < FLEE_CHANCE;
 
@@ -175,7 +259,6 @@ export const CombatScene: React.FC<CombatSceneProps> = ({
           pushActionLog('player', 'Failed to flee! The enemy strikes!');
           setRequestedAction(null);
 
-          // Punish the player by passing turn directly to enemy
           setTimeout(() => {
             if (!consumeQueuedTurn()) {
               setTurnState('enemy_turn');
@@ -196,6 +279,10 @@ export const CombatScene: React.FC<CombatSceneProps> = ({
           const itemName = itemDef?.name || 'Item';
           spawnText('USED ITEM', [-1.5, 1.5, 2], '#3b82f6');
           pushActionLog('player', `Used ${itemName}`);
+          if (itemDef?.type === 'flask') {
+            AudioManager.play('flask-open', { category: 'sfx' });
+            setTimeout(() => AudioManager.play('flask-drink', { category: 'sfx' }), 150);
+          }
           setPlayerAction(itemDef?.effect?.type === 'heal' ? 'heal' : 'cast');
           setPlayerStats((prev) => ({
             ...usePlayerStore.getState().stats,
@@ -238,11 +325,22 @@ export const CombatScene: React.FC<CombatSceneProps> = ({
           setPlayerEmphasis(skillId === 'heavy_attack' ? 'heavy' : 'plunge');
           cameraTargetPos.current.set(-2.0, 1.0, 5.0);
           cameraLookAtTarget.current.set(-1.5, 0.25, 2.0);
+          if (skillId === 'plunging_strike') {
+            AudioManager.play('plunging-strike', { category: 'sfx' });
+          }
         } else {
           setPlayerEmphasis('none');
         }
 
-        setTimeout(() => {
+        if (skillId === 'divine_blessing') {
+          AudioManager.play('divine-blessing', { category: 'sfx' });
+        }
+        if (skillId === 'blood_surge') {
+          AudioManager.play('blood-orb', { category: 'sfx' });
+        }
+
+        // Shared handler for skill execution results
+        const applySkillResult = () => {
           const pStats = { ...playerStats };
           const eStats = { ...enemyInstance };
           const equippedWeaponId = usePlayerStore.getState().equippedWeaponId;
@@ -278,9 +376,13 @@ export const CombatScene: React.FC<CombatSceneProps> = ({
             if (atk.hit) {
               setEnemyAction('hurt');
               spawnText(`${atk.damageDealt}`, [1.5, 1.5, -1.5], atk.isCrit ? '#ff0000' : '#ffffff');
+              const isHeavyHit = skillId === 'heavy_attack' || skillId === 'plunging_strike';
               if (atk.partSevered) {
                 spawnText('SEVERED!', [1.5, 2.0, -1.5], '#ef4444');
                 severLimb(limbId);
+                playSeverSound(enemyInstance.defId, limbId, enemyPosition);
+              } else {
+                playPlayerHitSound(enemyInstance.defId, isHeavyHit, enemyPosition);
               }
             } else {
               spawnText('MISS', [1.5, 1.5, -1.5], '#a3a3a3');
@@ -336,7 +438,31 @@ export const CombatScene: React.FC<CombatSceneProps> = ({
           }
 
           setRequestedAction(null);
-        }, 500);
+        };
+
+        // If skill throws a projectile (e.g. Weakening Dagger Throw)
+        if (skillId === 'weakening_dagger_throw') {
+          const projId = `player_proj_${Date.now()}`;
+          const newProj: ActiveProjectile = {
+            id: projId,
+            type: 'dagger',
+            startPos: [playerPosition[0] + 0.5, playerPosition[1] + 1.2, playerPosition[2]],
+            targetPos: [enemyPosition[0], enemyPosition[1] + 1.0, enemyPosition[2]],
+            onHitCallback: () => {
+              applySkillResult();
+              setProjectiles((prev) => prev.filter((p) => p.id !== projId));
+            },
+          };
+
+          // Delay launch slightly to synchronize with player wind-up
+          setTimeout(() => {
+            AudioManager.play('weakening-dagger-throw', { category: 'sfx' });
+            setProjectiles((prev) => [...prev, newProj]);
+          }, 150);
+        } else {
+          // Direct physical/utility skill execution
+          setTimeout(applySkillResult, 500);
+        }
       } else {
         const [attackId, limbId] = requestedAction.split('|');
         setPlayerAction('attack');
@@ -366,6 +492,9 @@ export const CombatScene: React.FC<CombatSceneProps> = ({
             if (result.partSevered) {
               spawnText('SEVERED!', [1.5, 2.0, -1.5], '#ef4444');
               severLimb(limbId);
+              playSeverSound(enemyInstance.defId, limbId, enemyPosition);
+            } else {
+              playPlayerHitSound(enemyInstance.defId, false, enemyPosition);
             }
             if (result.lifestealHeal) {
               spawnText(`+${result.lifestealHeal}`, [-1.5, 2.0, 2], '#dc2626');
@@ -391,6 +520,8 @@ export const CombatScene: React.FC<CombatSceneProps> = ({
     turnState,
     enemyInstance,
     playerStats,
+    playerPosition,
+    enemyPosition,
     setTurnState,
     setPlayerStats,
     setEnemyInstance,
@@ -402,11 +533,16 @@ export const CombatScene: React.FC<CombatSceneProps> = ({
     onFlee,
   ]);
 
+  const hasPlayedDefeatSfx = useRef(false);
+
   useEffect(() => {
-    if (turnState === 'defeat') {
-      const timer = setTimeout(() => {
-        onDefeat?.();
-      }, 1200); // 1.2s delay allows player death animation to play out
+    if (turnState === 'defeat' && !hasPlayedDefeatSfx.current) {
+      hasPlayedDefeatSfx.current = true;
+      AudioManager.stopBGM();
+      AudioManager.play('player-death', { category: 'sfx' });
+      setTimeout(() => AudioManager.play('player-death-drop-sword', { category: 'sfx' }), 250);
+
+      const timer = setTimeout(() => onDefeat?.(), 1200);
       return () => clearTimeout(timer);
     }
   }, [turnState, onDefeat]);
@@ -444,6 +580,7 @@ export const CombatScene: React.FC<CombatSceneProps> = ({
             : { id: 'basic_struggle', name: 'Struggle', damageMod: 0.5 };
 
         setEnemyAction('attack');
+        playEnemyAttackSound(attackDef.id, enemyPosition);
 
         const isRangedAttack = attackDef?.projectileType || attackDef?.isRanged;
         const attackTypeLabel = isRangedAttack ? 'Ranged' : 'Melee';
@@ -465,11 +602,19 @@ export const CombatScene: React.FC<CombatSceneProps> = ({
         if (activeProjType) {
           const projTimer = setTimeout(
             () => {
-              setActiveProjectile({
-                type: activeProjType,
-                startPos: [enemyPosition[0] - 0.5, enemyPosition[1] + 1.2, enemyPosition[2]],
-                targetPos: [-1.5, 0.5, 2],
-              });
+              const projId = `enemy_proj_${Date.now()}`;
+              setProjectiles((prev) => [
+                ...prev,
+                {
+                  id: projId,
+                  type: activeProjType,
+                  startPos: [enemyPosition[0] - 0.5, enemyPosition[1] + 1.2, enemyPosition[2]],
+                  targetPos: [-1.5, 0.5, 2],
+                  onHitCallback: () => {
+                    setProjectiles((prev) => prev.filter((p) => p.id !== projId));
+                  },
+                },
+              ]);
             },
             (attackDef.projectileFrame || 3) * baseFrameTime
           );
@@ -562,7 +707,6 @@ export const CombatScene: React.FC<CombatSceneProps> = ({
         });
       }
 
-      // Start of a new round. Re-evaluate speed and reset queued turns.
       if (playerStats && enemyInstance) {
         initQueuedTurns(playerStats.agility, enemyInstance.speed);
       }
@@ -580,7 +724,7 @@ export const CombatScene: React.FC<CombatSceneProps> = ({
     initQueuedTurns,
   ]);
 
-  // --- Camera Reset Manager ---
+  // Dynamic Camera Reset
   useEffect(() => {
     if (turnState === 'player_turn' && popups.length === 0) {
       cameraTargetPos.current.copy(originalCamPos);
@@ -588,7 +732,17 @@ export const CombatScene: React.FC<CombatSceneProps> = ({
     }
   }, [turnState, popups.length, originalCamPos]);
 
-  // Dynamic Camera Logic
+  // Low-HP cough: a chance to play on each of the player's turns while critically low
+  useEffect(() => {
+    if (turnState !== 'player_turn' || !playerStats) return;
+    const hpRatio = playerStats.hp / playerStats.maxHp;
+    if (hpRatio > 0 && hpRatio < 0.25 && Math.random() < 0.4) {
+      AudioManager.play('low_hp_cough', { category: 'sfx' });
+    }
+    // Only re-check when a fresh player turn starts, not on every hp tick within it
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [turnState]);
+
   useFrame((state) => {
     state.camera.position.lerp(cameraTargetPos.current, 0.15);
 
@@ -640,7 +794,7 @@ export const CombatScene: React.FC<CombatSceneProps> = ({
             attackVariant={playerAttackVariant}
             emphasis={playerEmphasis}
             onAnimEnd={onPlayerAnimEnd}
-            position={[-1.5, -0.8, 2]}
+            position={playerPosition}
           />
         )}
 
@@ -656,14 +810,15 @@ export const CombatScene: React.FC<CombatSceneProps> = ({
           </>
         )}
 
-        {activeProjectile && (
+        {projectiles.map((p) => (
           <CombatProjectile
-            type={activeProjectile.type}
-            startPos={activeProjectile.startPos}
-            targetPos={activeProjectile.targetPos}
-            onHit={() => setActiveProjectile(null)}
+            key={p.id}
+            type={p.type}
+            startPos={p.startPos}
+            targetPos={p.targetPos}
+            onHit={() => p.onHitCallback?.()}
           />
-        )}
+        ))}
 
         {popups.map((p) => (
           <Html key={p.id} position={p.position} center zIndexRange={[100, 0]}>

@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import * as THREE from 'three';
 import { TILE_SIZE } from '../components/Game/MapData';
 
@@ -11,19 +11,9 @@ export type MonsterBehavior =
 const AGGRO_RANGE = 7;
 const CHASE_SPEED_MULTIPLIER = 1.4;
 const SEARCH_DURATION = 3.0;
-// How often (seconds) chase recomputes its BFS path to the player.
-// Not every frame — that's wasteful and unnecessary since the player
-// doesn't teleport. Recomputing periodically keeps the path honest as
-// the player moves while staying cheap.
 const CHASE_REPATH_INTERVAL = 0.3;
-// If the monster is already this close to the player, skip pathing and
-// just close the last bit of distance directly — avoids visible "snapping
-// to tile centers" when right on top of the player.
 const CHASE_DIRECT_DISTANCE = 1.2;
 
-// Single-tile collision check used by the chase branch below, so a
-// monster moving in a straight line toward the player can't clip through
-// a wall corner the way it could when it moved with zero collision checks.
 function canMoveTo(x: number, z: number, grid: boolean[][]): boolean {
   const gx = Math.round(x / TILE_SIZE);
   const gz = Math.round(z / TILE_SIZE);
@@ -31,7 +21,6 @@ function canMoveTo(x: number, z: number, grid: boolean[][]): boolean {
   return !grid[gz][gx];
 }
 
-// --- 1. Line of Sight (Bresenham's) ---
 function hasLineOfSight(
   startX: number,
   startZ: number,
@@ -39,10 +28,10 @@ function hasLineOfSight(
   endZ: number,
   grid: boolean[][]
 ) {
-  let x0 = Math.floor(startX);
-  let y0 = Math.floor(startZ);
-  const x1 = Math.floor(endX);
-  const y1 = Math.floor(endZ);
+  let x0 = Math.round(startX / TILE_SIZE);
+  let y0 = Math.round(startZ / TILE_SIZE);
+  const x1 = Math.round(endX / TILE_SIZE);
+  const y1 = Math.round(endZ / TILE_SIZE);
 
   const dx = Math.abs(x1 - x0);
   const dy = Math.abs(y1 - y0);
@@ -69,7 +58,6 @@ function hasLineOfSight(
   return true;
 }
 
-// --- 2. Pathfinding (BFS) ---
 interface Point {
   x: number;
   z: number;
@@ -82,10 +70,10 @@ function findPath(
   endZ: number,
   grid: boolean[][]
 ): Point[] {
-  const sx = Math.floor(startX);
-  const sz = Math.floor(startZ);
-  const ex = Math.floor(endX);
-  const ez = Math.floor(endZ);
+  const sx = Math.round(startX / TILE_SIZE);
+  const sz = Math.round(startZ / TILE_SIZE);
+  const ex = Math.round(endX / TILE_SIZE);
+  const ez = Math.round(endZ / TILE_SIZE);
 
   if (sx === ex && sz === ez) return [];
 
@@ -93,7 +81,6 @@ function findPath(
   const cameFrom = new Map<string, Point | null>();
   cameFrom.set(`${sx},${sz}`, null);
 
-  // 4-way orthogonal movement prevents corner-clipping
   const dirs = [
     { dx: 0, dz: -1 },
     { dx: 0, dz: 1 },
@@ -110,7 +97,6 @@ function findPath(
       const nx = current.x + dx;
       const nz = current.z + dz;
 
-      // Check bounds and collision
       if (nz >= 0 && nz < grid.length && nx >= 0 && nx < grid[0].length) {
         if (!grid[nz][nx] && !cameFrom.has(`${nx},${nz}`)) {
           cameFrom.set(`${nx},${nz}`, current);
@@ -120,34 +106,34 @@ function findPath(
     }
   }
 
-  // Backtrack to build the path
   const path: Point[] = [];
   let curr: Point | undefined | null = { x: ex, z: ez };
-  if (!cameFrom.has(`${ex},${ez}`)) return []; // No path found
+  if (!cameFrom.has(`${ex},${ez}`)) return [];
 
   while (curr && (curr.x !== sx || curr.z !== sz)) {
     path.push(curr);
     curr = cameFrom.get(`${curr.x},${curr.z}`);
   }
 
-  // Reverse to get path from start -> end
   return path.reverse();
 }
 
-// --- 3. Monster AI Hook ---
 export function useMonsterBehavior(
   startX: number,
   startZ: number,
   behavior: MonsterBehavior = { type: 'static', facing: 'S' },
   playerPos: THREE.Vector3,
-  collisionGrid: boolean[][]
+  collisionGrid: boolean[][],
+  onChaseStateChange?: (isChasing: boolean) => void
 ) {
   const patrolDir = useRef(1);
   const state = useRef<'default' | 'chase' | 'searching' | 'returning'>('default');
+  const [isChasing, setIsChasing] = useState(false);
+
   const searchTimer = useRef(0);
-  const pathRef = useRef<Point[]>([]); // Stores the active path home
-  const chasePathRef = useRef<Point[]>([]); // NEW: BFS path toward the player during chase
-  const chaseRepathTimer = useRef(0); // NEW: counts down to the next chase repath
+  const pathRef = useRef<Point[]>([]);
+  const chasePathRef = useRef<Point[]>([]);
+  const chaseRepathTimer = useRef(0);
 
   const facingRef = useRef<Direction>(
     behavior.type === 'static' && behavior.facing ? behavior.facing : 'S'
@@ -174,16 +160,18 @@ export function useMonsterBehavior(
     // STATE TRANSITIONS
     if (hasLoS) {
       if (state.current !== 'chase') {
-        // Just entering chase — force an immediate path calculation
-        // instead of waiting out the repath interval.
         chaseRepathTimer.current = 0;
+        setIsChasing(true);
+        onChaseStateChange?.(true);
       }
       state.current = 'chase';
-      pathRef.current = []; // Clear any active return paths
+      pathRef.current = [];
     } else if (state.current === 'chase') {
       state.current = 'searching';
       searchTimer.current = SEARCH_DURATION;
-      chasePathRef.current = []; // NEW: drop the stale chase path
+      chasePathRef.current = [];
+      setIsChasing(false);
+      onChaseStateChange?.(false);
     }
 
     // STATE EXECUTION
@@ -191,18 +179,7 @@ export function useMonsterBehavior(
       const baseSpeed = behavior.speed ?? 1.5;
       const chaseSpeed = baseSpeed * CHASE_SPEED_MULTIPLIER;
 
-      // (2nd pass): straight-line movement + per-axis sliding
-      // still got the monster stuck walking-in-place against concave
-      // corners (an L of two wall tiles blocks BOTH axes at once, and
-      // since LoS to the player is unaffected the monster never dropped
-      // into 'searching' to re-path). Chase now uses the same BFS
-      // pathfinding 'returning' already relies on, recomputed every
-      // CHASE_REPATH_INTERVAL seconds so it stays cheap. BFS naturally
-      // routes around corners a straight line/slide cannot.
       if (distance <= CHASE_DIRECT_DISTANCE) {
-        // Close enough — skip pathing, close the gap directly. Distance
-        // is small enough that a wall corner isn't a realistic concern
-        // here, and this avoids visible tile-snapping right next to the player.
         chasePathRef.current = [];
         const moveX = (dx / distance) * chaseSpeed * delta;
         const moveZ = (dz / distance) * chaseSpeed * delta;
@@ -258,9 +235,6 @@ export function useMonsterBehavior(
             }
           }
         } else {
-          // BFS found no path (fully boxed in, or player is on an
-          // unreachable tile) — fall back to the direct per-axis slide
-          // rather than freezing entirely.
           const moveX = (dx / distance) * chaseSpeed * delta;
           const moveZ = (dz / distance) * chaseSpeed * delta;
           const nextX = currentPos.current.x + moveX;
@@ -278,7 +252,6 @@ export function useMonsterBehavior(
       searchTimer.current -= delta;
       if (searchTimer.current <= 0) {
         state.current = 'returning';
-        // Generate the grid path home when returning begins
         pathRef.current = findPath(
           currentPos.current.x,
           currentPos.current.z,
@@ -288,7 +261,6 @@ export function useMonsterBehavior(
         );
       }
     } else if (state.current === 'returning') {
-      // If we have nodes left in our path, walk to the next one
       if (pathRef.current.length > 0) {
         const nextNode = pathRef.current[0];
         const targetX = nextNode.x * TILE_SIZE;
@@ -298,7 +270,6 @@ export function useMonsterBehavior(
         const hz = targetZ - currentPos.current.z;
         const distToNode = Math.sqrt(hx * hx + hz * hz);
 
-        // Arrived at the current tile, target the next one in the array
         if (distToNode < 0.1) {
           currentPos.current.x = targetX;
           currentPos.current.z = targetZ;
@@ -315,7 +286,6 @@ export function useMonsterBehavior(
           }
         }
       } else {
-        // Path complete (or no path found), lock to home coordinates and resume default
         currentPos.current.x = startX * TILE_SIZE;
         currentPos.current.z = startZ * TILE_SIZE;
         state.current = 'default';
@@ -357,5 +327,5 @@ export function useMonsterBehavior(
     return facingRef.current;
   };
 
-  return { updatePosition };
+  return { updatePosition, isChasing };
 }

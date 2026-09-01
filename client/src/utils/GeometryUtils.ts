@@ -2,19 +2,15 @@ import { SHEET_CONFIG } from '../data/TileRegistry';
 
 export const getAtlasUVs = (col: number, row: number, widthTiles = 1, heightTiles = 1) => {
   const { width, height, tileSize } = SHEET_CONFIG;
+  const inset = 0.5; // half-pixel inset
 
-  // Calculate pixel Coords
-  const pixelX = col * tileSize;
-  const pixelY = row * tileSize;
-  const pixelW = widthTiles * tileSize;
-  const pixelH = heightTiles * tileSize;
+  const pixelX = col * tileSize + inset;
+  const pixelY = row * tileSize + inset;
+  const pixelW = widthTiles * tileSize - inset * 2;
+  const pixelH = heightTiles * tileSize - inset * 2;
 
-  // Conver to UV Space (0.0 -> 1.0)
   const uMin = pixelX / width;
   const uMax = (pixelX + pixelW) / width;
-
-  // Threejs UVs (0,0 is bottom left, but images are top-left)
-  // We flip the Y axis to match spritesheet coord
   const vMax = 1 - pixelY / height;
   const vMin = 1 - (pixelY + pixelH) / height;
 

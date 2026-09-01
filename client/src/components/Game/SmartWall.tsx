@@ -1,4 +1,4 @@
-import React, { useRef, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { SmartWallShader } from '../Materials/SmartFadeMaterial';
@@ -20,30 +20,34 @@ export const SmartWall: React.FC<SmartWallProps> = ({
   position,
   rotation,
 }) => {
-  const materialRef = useRef<THREE.MeshStandardMaterial>(null);
-
-  // Determine if this wall is "Vertical" (Side wall) based on rotation
   const isVertical = Math.abs(rotation[1]) > 0.1;
 
-  // Create a custom material instance for this wall
+  // 1. MAIN MATERIAL (Group 0 - Wall Sides)
   const customMaterial = useMemo(() => {
     const mat = new THREE.MeshStandardMaterial({
       map: texture,
-      color: '#666666',
-      roughness: 0.9,
+      color: '#ffffff',
+      roughness: 0.8,
       transparent: true,
-      // Force depthWrite to prevent flickering/z-fighting
       depthWrite: true,
     });
 
     mat.onBeforeCompile = (shader) => {
-      // 1. Apply the patch
       SmartWallShader.onBeforeCompile(shader);
 
-      // 2. Save reference
-      mat.userData.shader = shader;
+      // Darker washed-out gray in linear space to keep flashlight from blowing it out
+      shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <map_fragment>',
+        `
+      #include <map_fragment>
+      #ifdef USE_MAP
+        diffuseColor.rgb = mix(vec3(0.025, 0.027, 0.030), diffuseColor.rgb, diffuseColor.a);
+        diffuseColor.a = 1.0; 
+      #endif
+      `
+      );
 
-      // 3. Set static uniforms locally for THIS specific wall
+      mat.userData.shader = shader;
       shader.uniforms.uWallType.value = wallType === 'fadable' ? 1.0 : 0.0;
       shader.uniforms.uIsVertical.value = isVertical ? 1.0 : 0.0;
     };
@@ -51,18 +55,40 @@ export const SmartWall: React.FC<SmartWallProps> = ({
     return mat;
   }, [texture, wallType, isVertical]);
 
+  // 2. STRUCTURE FILL MATERIAL (Group 1 - Tops & Interiors)
+  const fillMaterial = useMemo(() => {
+    const mat = new THREE.MeshStandardMaterial({
+      color: '#222528', // Dark desaturated washed-out gray matching the GLSL void tone
+      roughness: 0.95,
+      transparent: true,
+      depthWrite: true,
+    });
+
+    mat.onBeforeCompile = (shader) => {
+      SmartWallShader.onBeforeCompile(shader);
+      mat.userData.shader = shader;
+
+      shader.uniforms.uWallType.value = wallType === 'fadable' ? 1.0 : 0.0;
+      shader.uniforms.uIsVertical.value = isVertical ? 1.0 : 0.0;
+    };
+
+    return mat;
+  }, [wallType, isVertical]);
+
   useFrame(() => {
-    // OPTIMIZATION: Update player pos on GPU
-    if (materialRef.current?.userData.shader && playerPos.current) {
-      materialRef.current.userData.shader.uniforms.uPlayerPos.value.copy(playerPos.current);
+    if (playerPos.current) {
+      if (customMaterial.userData.shader) {
+        customMaterial.userData.shader.uniforms.uPlayerPos.value.copy(playerPos.current);
+      }
+      if (fillMaterial.userData.shader) {
+        fillMaterial.userData.shader.uniforms.uPlayerPos.value.copy(playerPos.current);
+      }
     }
   });
 
   return (
     <group position={position} rotation={rotation}>
-      <mesh geometry={geometry} castShadow receiveShadow>
-        <primitive object={customMaterial} ref={materialRef} attach="material" />
-        {/* Helper to fix shadow artifacts on transparent meshes */}
+      <mesh geometry={geometry} material={[customMaterial, fillMaterial]} castShadow receiveShadow>
         <meshDepthMaterial attach="customDepthMaterial" depthPacking={THREE.RGBADepthPacking} />
       </mesh>
     </group>

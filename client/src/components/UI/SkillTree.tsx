@@ -18,7 +18,7 @@ export const SkillTree: React.FC<SkillTreeProps> = ({ stats: propStats, onClose,
 
   // Derive the 4 unlockable tree skills
   const availableSkillIds = useMemo(() => {
-    return ['divine_blessing', 'plunging_strike', 'blood_surge', 'weakening_strike'];
+    return ['divine_blessing', 'plunging_strike', 'blood_surge', 'weakening_dagger_throw'];
   }, []);
 
   const [selectedIndex, setSelectedIndex] = useState(0);

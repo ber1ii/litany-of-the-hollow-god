@@ -7,6 +7,18 @@ import { TILE_SIZE } from './MapData';
 import { useMonsterBehavior } from '../../hooks/useMonsterBehavior';
 import type { MonsterBehavior, Direction } from '../../hooks/useMonsterBehavior';
 import type { MonsterType } from '../../types/GameTypes';
+import { AudioManager } from '../../managers/AudioManager';
+
+// Maps sprite/monster type to its footstep variation key in AudioManager.
+// Falls back to skeleton_walk for any non-sheet type (currently only 'skeleton').
+const WALK_SOUND_MAP: Record<string, string> = {
+  orc2: 'orc_walk',
+  orc3: 'orc_walk',
+  vampire1: 'vampire_walk',
+  vampire_boss: 'vampire_walk',
+};
+const WALK_INTERVAL = 0.5;
+const CHASE_WALK_INTERVAL = 0.28;
 
 interface MonsterProps {
   id: string;
@@ -18,7 +30,9 @@ interface MonsterProps {
   collisionGrid: boolean[][];
   onCombatStart: () => void;
   enemyTracker: React.RefObject<Map<string, { x: number; z: number }>>;
+  onChaseStateChange?: (id: string, isChasing: boolean) => void;
   scale?: number;
+  active?: boolean;
 }
 
 const SPRITESHEET_CONFIGS: Record<string, { url: string; cols: number; rows: number }> = {
@@ -49,15 +63,26 @@ export const Monster: React.FC<MonsterProps> = ({
   collisionGrid,
   onCombatStart,
   enemyTracker,
+  onChaseStateChange,
   scale = 1.4,
+  active = true,
 }) => {
   const [direction, setDirection] = useState<Direction>('S');
   const groupRef = useRef<THREE.Group>(null);
   const materialRef = useRef<THREE.MeshStandardMaterial>(null);
   const currentPos = useRef(new THREE.Vector3(startX * TILE_SIZE, 0.15, startZ * TILE_SIZE));
   const hasTriggeredCombat = useRef(false);
+  const stepAudioTimer = useRef(0);
+  const prevStepPos = useRef(new THREE.Vector3(startX * TILE_SIZE, 0.15, startZ * TILE_SIZE));
 
-  const { updatePosition } = useMonsterBehavior(startX, startZ, behavior, playerPos, collisionGrid);
+  const { updatePosition, isChasing } = useMonsterBehavior(
+    startX,
+    startZ,
+    behavior,
+    playerPos,
+    collisionGrid,
+    (chasing) => onChaseStateChange?.(id, chasing)
+  );
 
   const isSheetMonster = Boolean(SPRITESHEET_CONFIGS[type]);
   const sheetConfig = SPRITESHEET_CONFIGS[type];
@@ -105,13 +130,33 @@ export const Monster: React.FC<MonsterProps> = ({
   }, [id, enemyTracker]);
 
   useFrame((state, delta) => {
-    if (!groupRef.current || hasTriggeredCombat.current) return;
+    if (!groupRef.current || hasTriggeredCombat.current || !active) return;
 
     const newDirection = updatePosition(currentPos, delta);
     if (newDirection !== direction) {
       setDirection(newDirection);
     }
     groupRef.current.position.copy(currentPos.current);
+
+    // Footstep audio — only fires while actually moving (static/idle frames
+    // between path nodes stay silent), pitched faster during a chase, and
+    // panned in 3D so distant monsters sound distant.
+    const distMoved = currentPos.current.distanceTo(prevStepPos.current);
+    if (distMoved > 0.001) {
+      stepAudioTimer.current += delta;
+      const interval = isChasing ? CHASE_WALK_INTERVAL : WALK_INTERVAL;
+      if (stepAudioTimer.current >= interval) {
+        stepAudioTimer.current = 0;
+        AudioManager.play(WALK_SOUND_MAP[type] ?? 'skeleton_walk', {
+          volume: isChasing ? 0.6 : 0.4,
+          category: 'sfx',
+          position: [currentPos.current.x, currentPos.current.y, currentPos.current.z],
+        });
+      }
+    } else {
+      stepAudioTimer.current = 0;
+    }
+    prevStepPos.current.copy(currentPos.current);
 
     if (isSheetMonster && materialRef.current?.map) {
       const map = materialRef.current.map as THREE.Texture;

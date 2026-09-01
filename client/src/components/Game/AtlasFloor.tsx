@@ -19,6 +19,7 @@ export const AtlasFloor: React.FC<AtlasFloorProps> = ({ map }) => {
     t.colorSpace = THREE.SRGBColorSpace;
     t.wrapS = THREE.ClampToEdgeWrapping;
     t.wrapT = THREE.ClampToEdgeWrapping;
+
     return t;
   }, [rawTexture]);
 
@@ -31,38 +32,34 @@ export const AtlasFloor: React.FC<AtlasFloorProps> = ({ map }) => {
     map.forEach((row, z) => {
       row.forEach((tileId, x) => {
         let tileDef = getTileDef(tileId);
-
-        // Fallback to base floor for walls/props so there's no void
         if (tileDef.type !== 'floor') {
           tileDef = getTileDef(2);
         }
 
         const xCenter = x * TILE_SIZE;
         const zCenter = z * TILE_SIZE;
-
-        // Standard floor height at 0. Items will be at 0.05.
         const yPos = 0;
 
         const sizeW = tileDef.size?.w ?? 1;
         const sizeH = tileDef.size?.h ?? 1;
-        const width = sizeW * TILE_SIZE;
-        const height = sizeH * TILE_SIZE;
+        const width = TILE_SIZE;
+        const height = TILE_SIZE;
         const halfW = width / 2;
         const halfH = height / 2;
 
         vertices.push(
           xCenter - halfW,
           yPos,
-          zCenter + halfH, // BL
+          zCenter + halfH,
           xCenter + halfW,
           yPos,
-          zCenter + halfH, // BR
+          zCenter + halfH,
           xCenter + halfW,
           yPos,
-          zCenter - halfH, // TR
+          zCenter - halfH,
           xCenter - halfW,
           yPos,
-          zCenter - halfH // TL
+          zCenter - halfH
         );
 
         const { uMin, uMax, vMin, vMax } = getAtlasUVs(
@@ -95,8 +92,8 @@ export const AtlasFloor: React.FC<AtlasFloorProps> = ({ map }) => {
   }, [map]);
 
   return (
-    <mesh geometry={geometry} receiveShadow rotation={[-Math.PI / 2, 0, 0]} rotation-x={0}>
-      <meshStandardMaterial map={texture} roughness={0.9} color="#888888" />
+    <mesh geometry={geometry} receiveShadow>
+      <meshStandardMaterial map={texture} roughness={0.9} color="#ffffff" />
     </mesh>
   );
 };

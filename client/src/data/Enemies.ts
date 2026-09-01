@@ -12,7 +12,13 @@ export const ENEMIES: Record<string, EnemyDef & { defaultBehavior?: MonsterBehav
     baseStats: { attack: 10, defense: 2, speed: 3, maxHp: 80 },
     scale: 3,
     sprites: {
-      idle: { textureUrl: '/sprites/combat/skeleton/idle.png', frames: 3, columns: 3, rows: 1 },
+      idle: {
+        textureUrl: '/sprites/combat/skeleton/idle.png',
+        frames: 3,
+        columns: 3,
+        rows: 1,
+        frameDuration: 0.165,
+      },
       attack: {
         textureUrl: '/sprites/combat/skeleton/attack.png',
         frames: 13,
@@ -86,7 +92,7 @@ export const ENEMIES: Record<string, EnemyDef & { defaultBehavior?: MonsterBehav
       },
       {
         id: 'r_arm',
-        name: 'Sword Arm (Right)',
+        name: 'Right Arm',
         hp: 25,
         maxHp: 25,
         isSevered: false,
@@ -217,7 +223,7 @@ export const ENEMIES: Record<string, EnemyDef & { defaultBehavior?: MonsterBehav
       },
       {
         id: 'r_arm',
-        name: 'Shield Arm (Screen Right)',
+        name: 'Right Arm',
         hp: 35,
         maxHp: 35,
         isSevered: false,
@@ -287,7 +293,7 @@ export const ENEMIES: Record<string, EnemyDef & { defaultBehavior?: MonsterBehav
     },
     attacks: [
       {
-        id: 'axe_swing',
+        id: 'cleaver_swing',
         name: 'Executioner Swing',
         damageMod: 1.1,
         speedMultiplier: 1.0,

@@ -1,91 +1,75 @@
 import { getTileDef, TILE_IDS } from '../../data/TileRegistry';
+import { getWallOrientation } from '../../utils/WallOrientation';
+import { buildStructureFootprint } from '../../utils/StructureFootprint';
+import { getSpawnPosition } from '../../utils/MapParser';
 
 export const TILE_SIZE = 1;
 export const TILE_TYPES = TILE_IDS;
 
-const MAP_WIDTH = 30;
-const MAP_HEIGHT = 30;
+export const LEVEL_1_ASCII = [
+  '##############################',
+  '#@11........T................#',
+  '#.11.........................#',
+  '#...................g........#',
+  '#.........#d###..............#',
+  '#.........#...#..............#',
+  '#.........#B..#......s.......#',
+  '#.........#$W.#..............#',
+  '##A########...#######L########',
+  '.............................#',
+  '....444...........R..........#',
+  '....444......................#',
+  '.........................k...#',
+  '#####D########################',
+];
 
-const EMPTY_MAP = Array(MAP_HEIGHT)
-  .fill(0)
-  .map(() => Array(MAP_WIDTH).fill(0));
-
-const map = [...EMPTY_MAP];
-
-// --- 1. WALLS ---
-
-// Outer Perimeter
-for (let x = 0; x < MAP_WIDTH; x++) {
-  map[0][x] = 1;
-  map[MAP_HEIGHT - 1][x] = 1;
-}
-for (let z = 0; z < MAP_HEIGHT; z++) {
-  map[z][0] = 1;
-  map[z][MAP_WIDTH - 1] = 1;
-}
-
-// Horizontal Split
-for (let x = 1; x < MAP_WIDTH - 1; x++) {
-  map[12][x] = 1;
-}
-
-// Vertical Split
-for (let z = 12; z < MAP_HEIGHT - 1; z++) {
-  map[z][14] = 1;
-}
-
-// --- 2. OPENINGS & DOORS ---
-map[22][14] = TILE_TYPES.DOOR_CLOSED;
-map[12][22] = TILE_TYPES.DOOR_LOCKED_SILVER;
-
-// --- 3. ITEMS & ENEMIES ---
-
-// Room 1 (Bottom Left): Gold, Bonfire & Iron Broadsword for testing
-map[25][5] = TILE_TYPES.GOLD;
-map[24][5] = TILE_TYPES.BONFIRE;
-map[25][6] = TILE_TYPES.IRON_BROADSWORD; // Placed next to gold
-map[27][5] = TILE_TYPES.ORC2;
-
-// Room 1: Line-of-Sight Test Wall (Hide behind this)
-map[25][8] = 1;
-map[26][8] = 1;
-map[27][8] = 1;
-
-// Room 1: Cursed Ground Patch (COBBLESTONE_5)
-map[26][4] = TILE_TYPES.COBBLESTONE_5;
-map[26][5] = TILE_TYPES.COBBLESTONE_5;
-map[26][6] = TILE_TYPES.COBBLESTONE_5;
-
-// Room 2 (Bottom Right): Vampire 1 & Key
-map[22][19] = TILE_TYPES.VAMPIRE_BOSS;
-map[22][26] = TILE_TYPES.KEY_SILVER;
-
-// Props
-map[23][4] = TILE_TYPES.TORCH_WALL;
-map[23][6] = TILE_TYPES.CANDLE;
-
-export const LEVEL_1_MAP = map;
+// Dynamic spawn location parsed directly from the '@' symbol in LEVEL_1_ASCII
+export const PLAYER_SPAWN = getSpawnPosition(LEVEL_1_ASCII);
 
 export const generateCollisionGrid = (mapData: number[][]) => {
+  const height = mapData.length;
+  const width = mapData[0]?.length ?? 0;
   const collision = mapData.map((row) => row.map(() => false));
 
-  for (let z = 0; z < mapData.length; z++) {
-    for (let x = 0; x < mapData[z].length; x++) {
+  const footprint = buildStructureFootprint(mapData);
+  for (let z = 0; z < height; z++) {
+    for (let x = 0; x < width; x++) {
+      const id = footprint[z][x];
+      if (id === null) continue;
+      if (getTileDef(id).solid) collision[z][x] = true;
+    }
+  }
+
+  for (let z = 0; z < height; z++) {
+    for (let x = 0; x < width; x++) {
       const id = mapData[z][x];
       if (id === 0) continue;
 
       const def = getTileDef(id);
-
+      if (def.placement !== 'modular') continue;
       if (def.solid === false) continue;
 
-      if (def && def.solid) {
-        for (let w = 0; w < def.size.w; w++) {
-          if (x + w < mapData[0].length) {
-            collision[z][x + w] = true;
-          }
+      const isVertical = getWallOrientation(mapData, x, z) === 'vertical';
+      for (let i = 0; i < def.size.w; i++) {
+        if (isVertical) {
+          if (z + i < height) collision[z + i][x] = true;
+        } else if (x + i < width) {
+          collision[z][x + i] = true;
         }
       }
     }
   }
+
+  for (let z = 0; z < height; z++) {
+    for (let x = 0; x < width; x++) {
+      const id = mapData[z][x];
+      if (id === 0) continue;
+      const def = getTileDef(id);
+      if (def && def.type === 'door' && id !== TILE_TYPES.DOOR_OPEN) {
+        collision[z][x] = true;
+      }
+    }
+  }
+
   return collision;
 };

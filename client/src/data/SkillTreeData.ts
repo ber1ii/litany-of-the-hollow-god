@@ -50,8 +50,8 @@ export const SKILL_TREE: Record<string, SkillNodeDef> = {
     cost: 0,
     requires: [],
   },
-  weakening_strike: {
-    id: 'weakening_strike',
+  weakening_dagger_throw: {
+    id: 'weakening_dagger_throw',
     x: 2,
     y: 0,
     cost: 0,

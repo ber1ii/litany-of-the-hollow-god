@@ -1,8 +1,9 @@
-import React, { useRef, useState, useMemo } from 'react';
+import React, { useRef, useState, useMemo, useEffect } from 'react';
 import { useTexture, Billboard } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { TILE_SIZE } from './MapData';
+import { AudioManager } from '../../managers/AudioManager';
 
 const TORCH_FRAMES = [
   '/sprites/props/torch/torch_1.png',
@@ -31,6 +32,20 @@ export const Bonfire: React.FC<BonfireProps> = ({ x, z }) => {
 
   const light = useRef<THREE.PointLight>(null);
   const [frameIndex, setFrameIndex] = useState(0);
+
+  const sourceRef = useRef<AudioBufferSourceNode | null>(null);
+
+  useEffect(() => {
+    sourceRef.current =
+      AudioManager.play('torch-bonfire-crackle', {
+        position: [x * TILE_SIZE, 0.25, z * TILE_SIZE],
+        loop: true,
+        category: 'ambient',
+        volume: 0.5,
+      }) || null;
+
+    return () => sourceRef.current?.stop();
+  }, [x, z]);
 
   useFrame(({ clock }) => {
     const t = clock.elapsedTime;

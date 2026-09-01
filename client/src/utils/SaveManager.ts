@@ -5,6 +5,7 @@ import { CLASSES } from '../data/Classes';
 import { INITIAL_LEVEL_ID } from '../data/LevelRegistry';
 import type { PlayerStats } from '../types/GameTypes';
 import type { ClassId } from '../data/Classes';
+import { PLAYER_SPAWN, TILE_SIZE } from '../components/Game/MapData';
 
 export interface SaveData {
   stats: PlayerStats;
@@ -53,7 +54,7 @@ export const SaveManager = {
       stats,
       inventory,
       currentLevelId: INITIAL_LEVEL_ID,
-      playerPos: { x: 3, y: 0, z: 25 }, // Default spawn
+      playerPos: { x: PLAYER_SPAWN.x * TILE_SIZE, y: 0, z: PLAYER_SPAWN.z * TILE_SIZE },
       playerRotation: 0,
       deadEnemyIds: [],
       levelChanges: {},

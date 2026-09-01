@@ -7,6 +7,7 @@ import { TILE_SIZE, TILE_TYPES, generateCollisionGrid } from './MapData';
 import { getTileDef } from '../../data/TileRegistry';
 import { SANITY_CONFIG } from '../../data/SanityConfig';
 import { usePlayerStore } from '../../hooks/usePlayerStore';
+import { AudioManager } from '../../managers/AudioManager';
 
 interface PlayerControllerProps {
   map: number[][];
@@ -15,6 +16,8 @@ interface PlayerControllerProps {
   playerRef: React.RefObject<THREE.Vector3>;
   playerRotRef: React.MutableRefObject<number>;
   active?: boolean;
+  isChased?: boolean;
+  onInteractableChange?: (canInteract: boolean) => void;
 }
 
 export const PlayerController: React.FC<PlayerControllerProps> = ({
@@ -24,9 +27,12 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
   playerRef,
   playerRotRef,
   active = true,
+  isChased = false,
+  onInteractableChange,
 }) => {
   const input = useKeyboard();
   const groupRef = useRef<THREE.Group>(null);
+  const canInteractRef = useRef(false);
 
   useLayoutEffect(() => {
     if (groupRef.current && playerRef.current) {
@@ -35,6 +41,9 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
   }, [playerRef]);
 
   const prevInteract = useRef(false);
+  const stepAudioTimer = useRef(0);
+  const WALK_AUDIO_INTERVAL = 0.38;
+  const CHASE_AUDIO_INTERVAL = 0.28; // Faster step rhythm when chased
 
   const collisionGrid = useMemo(() => generateCollisionGrid(map), [map]);
 
@@ -45,7 +54,6 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
   const checkCollision = (nextX: number, nextZ: number) => {
     if (!groupRef.current) return true;
 
-    // Get current Grid Position to prevent getting stuck INSIDE a door/wall
     const currentX = groupRef.current.position.x;
     const currentZ = groupRef.current.position.z;
     const currGridX = Math.round(currentX / TILE_SIZE);
@@ -56,9 +64,6 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
 
     if (gridZ < 0 || gridZ >= map.length || gridX < 0 || gridX >= map[0].length) return true;
 
-    // --- CRITICAL FIX ---
-    // Only bypass collision check if we are trapped inside a DOOR.
-    // Previously this allowed walking through ALL walls if you managed to clip into their tile.
     const currentTileId = map[currGridZ]?.[currGridX];
     const isTrappedInDoor =
       currentTileId === TILE_TYPES.DOOR_CLOSED || currentTileId === TILE_TYPES.DOOR_LOCKED_SILVER;
@@ -66,11 +71,9 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
     if (currGridX === gridX && currGridZ === gridZ && isTrappedInDoor) {
       return false;
     }
-    // --------------------
 
     const tileType = map[gridZ][gridX];
 
-    // Door specific collision (Closed or Locked)
     if (tileType === TILE_TYPES.DOOR_CLOSED || tileType === TILE_TYPES.DOOR_LOCKED_SILVER) {
       const dx = nextX - gridX * TILE_SIZE;
       const dz = nextZ - gridZ * TILE_SIZE;
@@ -175,47 +178,66 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
 
     if (!active) {
       setAnimation('idle');
+      stepAudioTimer.current = 0;
+      if (canInteractRef.current) {
+        canInteractRef.current = false;
+        onInteractableChange?.(false);
+      }
       return;
     }
 
+    AudioManager.updateListenerPosition(
+      [groupRef.current.position.x, groupRef.current.position.y, groupRef.current.position.z],
+      [currentAim.current.x, 0, currentAim.current.z]
+    );
+
     if (!lightTarget.parent) groupRef.current.add(lightTarget);
 
-    if (input.interact && !prevInteract.current) {
-      const currentX = groupRef.current.position.x;
-      const currentZ = groupRef.current.position.z;
+    // --- INTERACTABLE DETECTION (runs every frame, independent of keypress) ---
+    const currentX = groupRef.current.position.x;
+    const currentZ = groupRef.current.position.z;
+    const pGridX = Math.round(currentX / TILE_SIZE);
+    const pGridZ = Math.round(currentZ / TILE_SIZE);
+    const aimDir = currentAim.current.clone().normalize();
 
-      const pGridX = Math.round(currentX / TILE_SIZE);
-      const pGridZ = Math.round(currentZ / TILE_SIZE);
+    const candidates = [
+      { x: pGridX, z: pGridZ },
+      {
+        x: Math.round((currentX + aimDir.x * 0.8) / TILE_SIZE),
+        z: Math.round((currentZ + aimDir.z * 0.8) / TILE_SIZE),
+      },
+    ];
 
-      const aimDir = currentAim.current.clone().normalize();
+    let foundCandidate: { x: number; z: number } | null = null;
 
-      const candidates = [
-        { x: pGridX, z: pGridZ },
-        {
-          x: Math.round((currentX + aimDir.x * 0.8) / TILE_SIZE),
-          z: Math.round((currentZ + aimDir.z * 0.8) / TILE_SIZE),
-        },
-      ];
+    for (const c of candidates) {
+      if (c.z >= 0 && c.z < map.length && c.x >= 0 && c.x < map[0].length) {
+        const id = map[c.z][c.x];
+        const def = getTileDef(id);
 
-      for (const c of candidates) {
-        if (c.z >= 0 && c.z < map.length && c.x >= 0 && c.x < map[0].length) {
-          const id = map[c.z][c.x];
-          const def = getTileDef(id);
-
-          if (
-            (def.type === 'item' && def.itemId) ||
-            id === TILE_TYPES.KEY_SILVER ||
-            id === TILE_TYPES.GOLD ||
-            id === TILE_TYPES.DOOR_CLOSED ||
-            id === TILE_TYPES.DOOR_OPEN ||
-            id === TILE_TYPES.DOOR_LOCKED_SILVER ||
-            id === TILE_TYPES.BONFIRE
-          ) {
-            onInteract(c.x, c.z);
-            break;
-          }
+        if (
+          (def.type === 'item' && def.itemId) ||
+          id === TILE_TYPES.KEY_SILVER ||
+          id === TILE_TYPES.GOLD ||
+          id === TILE_TYPES.DOOR_CLOSED ||
+          id === TILE_TYPES.DOOR_OPEN ||
+          id === TILE_TYPES.DOOR_LOCKED_SILVER ||
+          id === TILE_TYPES.BONFIRE
+        ) {
+          foundCandidate = c;
+          break;
         }
       }
+    }
+
+    const isInteractable = foundCandidate !== null;
+    if (isInteractable !== canInteractRef.current) {
+      canInteractRef.current = isInteractable;
+      onInteractableChange?.(isInteractable);
+    }
+
+    if (input.interact && !prevInteract.current && foundCandidate) {
+      onInteract(foundCandidate.x, foundCandidate.z);
     }
     prevInteract.current = input.interact;
 
@@ -238,6 +260,18 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
 
     if (isMoving) {
       setAnimation('walk');
+
+      // Player Footstep Audio Triggering
+      stepAudioTimer.current += delta;
+      const currentInterval = isChased ? CHASE_AUDIO_INTERVAL : WALK_AUDIO_INTERVAL;
+
+      if (stepAudioTimer.current >= currentInterval) {
+        const soundKey = isChased ? 'footsteps_chase' : 'footsteps_walk';
+        const soundVolume = isChased ? 0.5 : 0.35;
+        AudioManager.play(soundKey, { volume: soundVolume });
+        stepAudioTimer.current = 0;
+      }
+
       const length = Math.sqrt(moveX * moveX + moveZ * moveZ);
       moveX /= length;
       moveZ /= length;
@@ -253,6 +287,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
       }
     } else {
       setAnimation('idle');
+      stepAudioTimer.current = WALK_AUDIO_INTERVAL;
     }
 
     let targetX = currentAim.current.x;
@@ -309,10 +344,8 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
     const currentGridZ = Math.round(groupRef.current.position.z / TILE_SIZE);
 
     if (currentGridX !== prevTile.current.x || currentGridZ !== prevTile.current.z) {
-      // 1. Trigger the standard onStep (used for minimap discovery, etc.)
       onStep(currentGridX, currentGridZ);
 
-      // 2. Check for Sanity Drain tile
       const currentTileId = map[currentGridZ]?.[currentGridX];
       if (currentTileId === TILE_TYPES.COBBLESTONE_5) {
         usePlayerStore.getState().modifySanity(-SANITY_CONFIG.DRAIN.CURSED_TILE_STEP);

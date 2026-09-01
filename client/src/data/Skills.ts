@@ -121,11 +121,12 @@ export const SKILL_DATABASE: Record<string, SkillDef> = {
     animation: 'blood_surge', // Maps to Blood_surge.png
     color: 'text-red-600',
   },
-  weakening_strike: {
-    id: 'weakening_strike',
-    name: 'Weakening Strike',
+  weakening_dagger_throw: {
+    id: 'weakening_dagger_throw',
+    name: 'Weakening Dagger Throw',
     type: 'physical',
-    description: 'Strike a vital point, leaving the enemy vulnerable to further damage.',
+    description:
+      'Throw a dagger to strike a vital point, leaving the enemy vulnerable to further damage.',
     cost: 15,
     cooldown: 3,
     enemyDebuff: {

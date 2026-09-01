@@ -6,6 +6,7 @@ import { Door } from './Door';
 import { Gold } from './Gold';
 import { Monster } from './Monster';
 import { getWallGroups } from '../../utils/WallGenerator';
+import { getWallOrientation } from '../../utils/WallOrientation';
 import { TILE_TYPES, TILE_SIZE } from './MapData';
 import { getTileDef, SHEET_CONFIG } from '../../data/TileRegistry';
 import type { TileDef } from '../../data/TileRegistry';
@@ -75,11 +76,16 @@ const createSmartGeometry = (
   cullRight: boolean
 ) => {
   const WALL_THICKNESS = 0.25;
+  const isStructure = tileDef.placement === 'structure';
+
   const baseWidth = tileDef.size.w * TILE_SIZE;
-  const height = tileDef.size.h;
+  const depth = isStructure ? tileDef.size.h * TILE_SIZE : WALL_THICKNESS;
+
+  // Use wallHeight if provided; otherwise structures default to 5, modular walls use size.h
+  const height = tileDef.wallHeight ?? (isStructure ? 5 : tileDef.size.h);
 
   const totalWidth = baseWidth + stretchLeft + stretchRight;
-  const geometry = new THREE.BoxGeometry(totalWidth, height, WALL_THICKNESS);
+  const geometry = new THREE.BoxGeometry(totalWidth, height, depth);
 
   const xOffset = (stretchRight - stretchLeft) / 2;
   geometry.translate(xOffset, height / 2, 0);
@@ -100,6 +106,12 @@ const createSmartGeometry = (
       newIndices.push(oldIndices[i]);
     }
     geometry.setIndex(newIndices);
+
+    // Force all modular wall faces to use Material Group 0
+    // This prevents standard BoxGeometry groups from applying the black fill
+    // material to the sides of modular walls.
+    geometry.clearGroups();
+    geometry.addGroup(0, newIndices.length, 0);
   }
 
   // UV Mapping
@@ -144,27 +156,8 @@ const StaticLevel = React.memo(
     const mapHeight = map.length;
 
     const getOrientation = useCallback(
-      (tx: number, tz: number) => {
-        if (tx < 0 || tx >= mapWidth || tz < 0 || tz >= mapHeight) return 'none';
-        if (!isStructure(map[tz][tx])) return 'none';
-
-        const valNorth = tz > 0 ? map[tz - 1][tx] : 0;
-        const valSouth = tz < mapHeight - 1 ? map[tz + 1][tx] : 0;
-        const valWest = tx > 0 ? map[tz][tx - 1] : 0;
-        const valEast = tx < mapWidth - 1 ? map[tz][tx + 1] : 0;
-
-        if (isStructure(valNorth) && isStructure(valSouth)) return 'vertical';
-        if (isStructure(valWest) && isStructure(valEast)) return 'horizontal';
-        if (
-          (isStructure(valNorth) || isStructure(valSouth)) &&
-          !isStructure(valWest) &&
-          !isStructure(valEast)
-        ) {
-          return 'vertical';
-        }
-        return 'horizontal';
-      },
-      [map, mapWidth, mapHeight]
+      (tx: number, tz: number) => getWallOrientation(map, tx, tz),
+      [map]
     );
 
     // 1. WALLS
@@ -177,60 +170,72 @@ const StaticLevel = React.memo(
         const anchorZ = group[0].z;
 
         let posX = anchorX * TILE_SIZE;
-        const posZ = anchorZ * TILE_SIZE;
+        let posZ = anchorZ * TILE_SIZE;
+
         const offsetX = ((tileDef.size.w - 1) * TILE_SIZE) / 2;
         posX += offsetX;
+
+        if (tileDef.placement === 'structure') {
+          const offsetZ = ((tileDef.size.h - 1) * TILE_SIZE) / 2;
+          posZ += offsetZ;
+        }
 
         const isTopRow = anchorZ === 0;
         const isBottomRow = anchorZ === mapHeight - 1;
         const isLeftCol = anchorX === 0;
         const isRightCol = anchorX + tileDef.size.w >= mapWidth;
 
-        let rotationY = 0;
-        const myOrientation = getOrientation(anchorX, anchorZ);
-        const isVertical = myOrientation === 'vertical';
+        const isModular = tileDef.placement === 'modular';
 
+        let rotationY = 0;
         let stretchLeft = 0;
         let stretchRight = 0;
-        const STRETCH_AMOUNT = 0.5;
         let cullLeft = false;
         let cullRight = false;
-
-        if (isVertical) {
-          rotationY = Math.PI / 2;
-          if (anchorZ > 0) {
-            const nID = map[anchorZ - 1][anchorX];
-            const nOr = getOrientation(anchorX, anchorZ - 1);
-            if (isStructure(nID) && nOr === 'horizontal') stretchRight = STRETCH_AMOUNT;
-            if (isOpaqueWall(nID) && nOr === 'vertical') cullRight = true;
-          }
-          if (anchorZ < mapHeight - 1) {
-            const sID = map[anchorZ + 1][anchorX];
-            const sOr = getOrientation(anchorX, anchorZ + 1);
-            if (isStructure(sID) && sOr === 'horizontal') stretchLeft = STRETCH_AMOUNT;
-            if (isOpaqueWall(sID) && sOr === 'vertical') cullLeft = true;
-          }
-        } else {
-          if (isLeftCol && !isTopRow && !isBottomRow) rotationY = -Math.PI / 2;
-          else if (isRightCol && !isTopRow && !isBottomRow) rotationY = Math.PI / 2;
-
-          if (anchorX > 0) {
-            const wID = map[anchorZ][anchorX - 1];
-            const wOr = getOrientation(anchorX - 1, anchorZ);
-            if (isStructure(wID) && wOr === 'vertical') stretchLeft = STRETCH_AMOUNT;
-            if (isOpaqueWall(wID) && wOr === 'horizontal') cullLeft = true;
-          }
-          const rightEdgeX = anchorX + tileDef.size.w;
-          if (rightEdgeX < mapWidth) {
-            const eID = map[anchorZ][rightEdgeX];
-            const eOr = getOrientation(rightEdgeX, anchorZ);
-            if (isStructure(eID) && eOr === 'vertical') stretchRight = STRETCH_AMOUNT;
-            if (isOpaqueWall(eID) && eOr === 'horizontal') cullRight = true;
-          }
-        }
-
         let type: 'rigid' | 'fadable' = 'fadable';
-        if (isTopRow || isLeftCol || isRightCol) type = 'rigid';
+
+        if (isModular) {
+          const myOrientation = getOrientation(anchorX, anchorZ);
+          const isVertical = myOrientation === 'vertical';
+          const STRETCH_AMOUNT = 0.5;
+
+          if (isVertical) {
+            rotationY = Math.PI / 2;
+            if (anchorZ > 0) {
+              const nID = map[anchorZ - 1][anchorX];
+              const nOr = getOrientation(anchorX, anchorZ - 1);
+              if (isStructure(nID) && nOr === 'horizontal') stretchRight = STRETCH_AMOUNT;
+              if (isOpaqueWall(nID) && nOr === 'vertical') cullRight = true;
+            }
+            if (anchorZ < mapHeight - 1) {
+              const sID = map[anchorZ + 1][anchorX];
+              const sOr = getOrientation(anchorX, anchorZ + 1);
+              if (isStructure(sID) && sOr === 'horizontal') stretchLeft = STRETCH_AMOUNT;
+              if (isOpaqueWall(sID) && sOr === 'vertical') cullLeft = true;
+            }
+          } else {
+            if (isLeftCol && !isTopRow && !isBottomRow) rotationY = -Math.PI / 2;
+            else if (isRightCol && !isTopRow && !isBottomRow) rotationY = Math.PI / 2;
+
+            if (anchorX > 0) {
+              const wID = map[anchorZ][anchorX - 1];
+              const wOr = getOrientation(anchorX - 1, anchorZ);
+              if (isStructure(wID) && wOr === 'vertical') stretchLeft = STRETCH_AMOUNT;
+              if (isOpaqueWall(wID) && wOr === 'horizontal') cullLeft = true;
+            }
+            const rightEdgeX = anchorX + tileDef.size.w;
+            if (rightEdgeX < mapWidth) {
+              const eID = map[anchorZ][rightEdgeX];
+              const eOr = getOrientation(rightEdgeX, anchorZ);
+              if (isStructure(eID) && eOr === 'vertical') stretchRight = STRETCH_AMOUNT;
+              if (isOpaqueWall(eID) && eOr === 'horizontal') cullRight = true;
+            }
+          }
+
+          type = isTopRow || isLeftCol || isRightCol ? 'rigid' : 'fadable';
+        } else {
+          type = 'rigid';
+        }
 
         const geometry = createSmartGeometry(
           tileDef,
@@ -299,7 +304,6 @@ const StaticLevel = React.memo(
       </group>
     );
   },
-  // CUSTOM COMPARATOR
   (prevProps, nextProps) => {
     if (prevProps.texture !== nextProps.texture || prevProps.playerPos !== nextProps.playerPos) {
       return false;
@@ -328,6 +332,8 @@ interface LevelBuilderProps {
   onCombatStart: (id: string) => void;
   enemyTracker: React.RefObject<Map<string, { x: number; z: number }>>;
   deadEnemyIds: Set<string>;
+  onEnemyChaseChange: (enemyId: string, isChasing: boolean) => void;
+  enemiesActive?: boolean;
 }
 
 export const LevelBuilder: React.FC<LevelBuilderProps> = ({
@@ -336,6 +342,8 @@ export const LevelBuilder: React.FC<LevelBuilderProps> = ({
   onCombatStart,
   enemyTracker,
   deadEnemyIds,
+  onEnemyChaseChange,
+  enemiesActive = true,
 }) => {
   const rawAtlas = useTexture('/textures/sheets/mainlevbuild.png');
   const texture = useMemo(() => {
@@ -348,28 +356,9 @@ export const LevelBuilder: React.FC<LevelBuilderProps> = ({
 
   const collisionGrid = useMemo(() => generateCollisionGrid(map), [map]);
 
-  const mapWidth = map[0].length;
-  const mapHeight = map.length;
-
   const getOrientation = useCallback(
-    (tx: number, tz: number) => {
-      if (tx < 0 || tx >= mapWidth || tz < 0 || tz >= mapHeight) return 'none';
-      if (!isStructure(map[tz][tx])) return 'none';
-      const valNorth = tz > 0 ? map[tz - 1][tx] : 0;
-      const valSouth = tz < mapHeight - 1 ? map[tz + 1][tx] : 0;
-      const valWest = tx > 0 ? map[tz][tx - 1] : 0;
-      const valEast = tx < mapWidth - 1 ? map[tz][tx + 1] : 0;
-      if (isStructure(valNorth) && isStructure(valSouth)) return 'vertical';
-      if (isStructure(valWest) && isStructure(valEast)) return 'horizontal';
-      if (
-        (isStructure(valNorth) || isStructure(valSouth)) &&
-        !isStructure(valWest) &&
-        !isStructure(valEast)
-      )
-        return 'vertical';
-      return 'horizontal';
-    },
-    [map, mapWidth, mapHeight]
+    (tx: number, tz: number) => getWallOrientation(map, tx, tz),
+    [map]
   );
 
   // --- 3. DYNAMIC ITEMS ---
@@ -390,6 +379,7 @@ export const LevelBuilder: React.FC<LevelBuilderProps> = ({
               isOpen={tile === TILE_TYPES.DOOR_OPEN}
               isLocked={isLocked}
               rotation={rotationY}
+              playerPos={playerPos}
             />
           );
         }
@@ -408,7 +398,6 @@ export const LevelBuilder: React.FC<LevelBuilderProps> = ({
         if (enemyConfig) {
           const enemyKey = `${enemyConfig.prefix}-${x}-${z}`;
 
-          // Look up the base enemy definition to grab its default behavior
           const baseEnemyDef = ENEMIES[enemyConfig.type.toUpperCase()];
 
           if (!deadEnemyIds.has(enemyKey)) {
@@ -424,6 +413,8 @@ export const LevelBuilder: React.FC<LevelBuilderProps> = ({
                   collisionGrid={collisionGrid}
                   onCombatStart={() => onCombatStart(enemyKey)}
                   enemyTracker={enemyTracker}
+                  onChaseStateChange={onEnemyChaseChange}
+                  active={enemiesActive}
                 />
               </group>
             );
@@ -437,7 +428,6 @@ export const LevelBuilder: React.FC<LevelBuilderProps> = ({
         if (tile === TILE_TYPES.CANDLE) {
           list.push(<Candle key={`candle-${x}-${z}`} x={x} z={z} />);
         }
-        // BONFIRE
         if (tile === TILE_TYPES.BONFIRE) {
           list.push(<Bonfire key={`bonfire-${x}-${z}`} x={x} z={z} />);
         }
@@ -453,7 +443,17 @@ export const LevelBuilder: React.FC<LevelBuilderProps> = ({
       });
     });
     return list;
-  }, [map, playerPos, onCombatStart, enemyTracker, deadEnemyIds, getOrientation, collisionGrid]);
+  }, [
+    map,
+    playerPos,
+    onCombatStart,
+    enemyTracker,
+    deadEnemyIds,
+    getOrientation,
+    collisionGrid,
+    onEnemyChaseChange,
+    enemiesActive,
+  ]);
 
   return (
     <group>

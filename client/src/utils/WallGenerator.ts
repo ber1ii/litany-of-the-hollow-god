@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { TILE_SIZE } from '../components/Game/MapData';
 import type { TileDef } from '../data/TileRegistry';
+import { getTileDef } from '../data/TileRegistry';
 import { getAtlasUVs } from './GeometryUtils';
 
 // Thickness Constant (0.25 = 1/4th of a tile)
@@ -13,8 +14,9 @@ export const getWallGroups = (map: number[][]) => {
   for (let row = 0; row < map.length; row++) {
     for (let col = 0; col < map[row].length; col++) {
       const tileId = map[row][col];
-      // ID 1 = Generic, ID >= 50 = Custom Anchor
-      const isWall = tileId === 1 || tileId >= 50;
+      // Any tile registered as type 'wall' — modular (WALL_GENERIC) or a
+      // structure set-piece — anchors a wall mesh at its top-left cell.
+      const isWall = tileId !== 0 && getTileDef(tileId).type === 'wall';
 
       if (isWall && !visited.has(`${col},${row}`)) {
         groups.push([{ x: col, z: row, id: tileId }]);
@@ -109,14 +111,18 @@ export const createWallGeometry = (tileDef: TileDef, cullFaces: CullOptions = {}
   };
 
   // Dimensions
+  const isStructure = tileDef.placement === 'structure';
   const width = tileDef.size.w * TILE_SIZE;
-  const height = tileDef.size.h * TILE_SIZE;
+  const depth = isStructure ? tileDef.size.h * TILE_SIZE : WALL_THICKNESS;
+
+  // Use wallHeight if provided; otherwise structures default to 5, modular walls use size.h
+  const height = (tileDef.wallHeight ?? (isStructure ? 5 : tileDef.size.h)) * TILE_SIZE;
 
   // LOCAL COORDINATES: Centered on X/Z, Bottom at Y=0
   const xL = -width / 2;
   const xR = width / 2;
-  const zF = -WALL_THICKNESS / 2;
-  const zB = WALL_THICKNESS / 2;
+  const zF = -depth / 2;
+  const zB = depth / 2;
   const yBot = 0;
   const yTop = height;
 
