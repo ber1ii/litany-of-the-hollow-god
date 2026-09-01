@@ -120,7 +120,7 @@ export const ENEMIES: Record<string, EnemyDef & { defaultBehavior?: MonsterBehav
   ORC2: {
     id: 'ORC2',
     name: 'Ironhide Orc Guard',
-    defaultBehavior: { type: 'patrol', axis: 'z', range: 3 },
+    defaultBehavior: { type: 'patrol', axis: 'x', range: 3 },
     hasMask: true,
     tier: 'common',
     aiBehavior: 'aggressive',

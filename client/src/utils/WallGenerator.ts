@@ -156,7 +156,7 @@ export const createWallGeometry = (tileDef: TileDef, cullFaces: CullOptions = {}
   return geometry;
 };
 
-// Floor generator (unchanged)
+// Floor generator
 export const createFloorGeometry = (x: number, z: number, tileDef: TileDef) => {
   const vertices: number[] = [];
   const normals: number[] = [];

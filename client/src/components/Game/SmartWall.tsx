@@ -32,7 +32,7 @@ export const SmartWall: React.FC<SmartWallProps> = ({
       color: '#666666',
       roughness: 0.9,
       transparent: true,
-      // CRITICAL FIX: Force depthWrite to prevent flickering/z-fighting
+      // Force depthWrite to prevent flickering/z-fighting
       depthWrite: true,
     });
 

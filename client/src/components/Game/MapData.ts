@@ -40,10 +40,16 @@ map[12][22] = TILE_TYPES.DOOR_LOCKED_SILVER;
 
 // --- 3. ITEMS & ENEMIES ---
 
-// Room 1 (Bottom Left): Gold & Bonfire for testing
+// Room 1 (Bottom Left): Gold, Bonfire & Iron Broadsword for testing
 map[25][5] = TILE_TYPES.GOLD;
 map[24][5] = TILE_TYPES.BONFIRE;
+map[25][6] = TILE_TYPES.IRON_BROADSWORD; // Placed next to gold
 map[27][5] = TILE_TYPES.ORC2;
+
+// Room 1: Line-of-Sight Test Wall (Hide behind this)
+map[25][8] = 1;
+map[26][8] = 1;
+map[27][8] = 1;
 
 // Room 1: Cursed Ground Patch (COBBLESTONE_5)
 map[26][4] = TILE_TYPES.COBBLESTONE_5;

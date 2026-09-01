@@ -15,6 +15,7 @@ interface MonsterProps {
   startZ: number;
   behavior?: MonsterBehavior;
   playerPos: THREE.Vector3;
+  collisionGrid: boolean[][];
   onCombatStart: () => void;
   enemyTracker: React.RefObject<Map<string, { x: number; z: number }>>;
   scale?: number;
@@ -45,6 +46,7 @@ export const Monster: React.FC<MonsterProps> = ({
   startZ,
   behavior = { type: 'static', facing: 'S' },
   playerPos,
+  collisionGrid,
   onCombatStart,
   enemyTracker,
   scale = 1.4,
@@ -55,7 +57,7 @@ export const Monster: React.FC<MonsterProps> = ({
   const currentPos = useRef(new THREE.Vector3(startX * TILE_SIZE, 0.15, startZ * TILE_SIZE));
   const hasTriggeredCombat = useRef(false);
 
-  const { updatePosition } = useMonsterBehavior(startX, startZ, behavior);
+  const { updatePosition } = useMonsterBehavior(startX, startZ, behavior, playerPos, collisionGrid);
 
   const isSheetMonster = Boolean(SPRITESHEET_CONFIGS[type]);
   const sheetConfig = SPRITESHEET_CONFIGS[type];

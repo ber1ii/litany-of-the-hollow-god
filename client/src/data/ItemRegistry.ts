@@ -30,7 +30,7 @@ export const ITEM_REGISTRY: Record<string, ItemDef> = {
     type: 'flask',
     icon: '/sprites/props/red_vial/potion_red_drop.png',
     description: 'Restores Vitality. Refills at Bonfire.',
-    stackable: true, // We use count as "Charges"
+    stackable: true,
     effect: { type: 'heal', value: 50 },
   },
   flask_cerulean: {
@@ -53,23 +53,14 @@ export const ITEM_REGISTRY: Record<string, ItemDef> = {
     stackable: false,
     stats: { attack: 5 },
   },
-  wooden_staff: {
-    id: 'wooden_staff',
-    name: 'Wooden Staff',
+  iron_broadsword: {
+    id: 'iron_broadsword',
+    name: 'Iron Broadsword',
     type: 'weapon',
     icon: '/sprites/items/weapons/sword_rusty.png',
-    description: 'A crooked branch pulsing with faint heat.',
+    description: 'A heavy, finely crafted blade. A true upgrade.',
     stackable: false,
-    stats: { attack: 4 },
-  },
-  dagger: {
-    id: 'dagger',
-    name: 'Dagger',
-    type: 'weapon',
-    icon: '/sprites/items/weapons/sword_rusty.png',
-    description: 'Short, serrated, and cruel.',
-    stackable: false,
-    stats: { attack: 4 },
+    stats: { attack: 25 },
   },
 
   // --- KEYS / QUEST ---

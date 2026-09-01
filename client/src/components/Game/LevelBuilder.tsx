@@ -16,6 +16,7 @@ import { LootDrop } from './LootDrop';
 import { ITEM_REGISTRY } from '../../data/ItemRegistry';
 import type { MonsterType } from '../../types/GameTypes';
 import { ENEMIES } from '../../data/Enemies';
+import { generateCollisionGrid } from './MapData';
 
 // --- STATIC HELPERS ---
 
@@ -345,6 +346,8 @@ export const LevelBuilder: React.FC<LevelBuilderProps> = ({
     return t;
   }, [rawAtlas]);
 
+  const collisionGrid = useMemo(() => generateCollisionGrid(map), [map]);
+
   const mapWidth = map[0].length;
   const mapHeight = map.length;
 
@@ -418,6 +421,7 @@ export const LevelBuilder: React.FC<LevelBuilderProps> = ({
                   startZ={z}
                   behavior={baseEnemyDef?.defaultBehavior}
                   playerPos={playerPos.current}
+                  collisionGrid={collisionGrid}
                   onCombatStart={() => onCombatStart(enemyKey)}
                   enemyTracker={enemyTracker}
                 />
@@ -433,7 +437,7 @@ export const LevelBuilder: React.FC<LevelBuilderProps> = ({
         if (tile === TILE_TYPES.CANDLE) {
           list.push(<Candle key={`candle-${x}-${z}`} x={x} z={z} />);
         }
-        // NEW: BONFIRE
+        // BONFIRE
         if (tile === TILE_TYPES.BONFIRE) {
           list.push(<Bonfire key={`bonfire-${x}-${z}`} x={x} z={z} />);
         }
@@ -449,7 +453,7 @@ export const LevelBuilder: React.FC<LevelBuilderProps> = ({
       });
     });
     return list;
-  }, [map, playerPos, onCombatStart, enemyTracker, deadEnemyIds, getOrientation]);
+  }, [map, playerPos, onCombatStart, enemyTracker, deadEnemyIds, getOrientation, collisionGrid]);
 
   return (
     <group>

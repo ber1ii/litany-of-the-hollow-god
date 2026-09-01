@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import type { InventoryItem } from '../../types/GameTypes';
 import { usePlayerStore } from '../../hooks/usePlayerStore';
 
@@ -15,6 +15,8 @@ export const InventoryMenu: React.FC<InventoryMenuProps> = ({
 }) => {
   const storeInventory = usePlayerStore((state) => state.inventory);
   const consumeItem = usePlayerStore((state) => state.consumeItem);
+  const equipItem = usePlayerStore((state) => state.equipItem);
+  const equippedWeaponId = usePlayerStore((state) => state.equippedWeaponId);
 
   const inventory = propInventory || storeInventory;
 
@@ -27,6 +29,17 @@ export const InventoryMenu: React.FC<InventoryMenuProps> = ({
   const maxIndex = Math.max(0, inventory.length - 1);
   const safeIndex = Math.min(selectedIndex, maxIndex);
   const selectedItem = inventory[safeIndex];
+
+  const handleAction = useCallback(
+    (item: InventoryItem) => {
+      if (['consumable', 'flask'].includes(item.type)) {
+        handleUseItem(item);
+      } else if (item.type === 'weapon') {
+        equipItem(item.id);
+      }
+    },
+    [handleUseItem, equipItem]
+  );
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -41,14 +54,21 @@ export const InventoryMenu: React.FC<InventoryMenuProps> = ({
         setSelectedIndex((prev) => Math.min(inventory.length - 1, prev + 1));
       }
       if (e.key === 'Enter' || e.key === ' ') {
-        if (selectedItem && ['consumable', 'flask'].includes(selectedItem.type)) {
-          handleUseItem(selectedItem);
+        if (selectedItem) {
+          handleAction(selectedItem);
         }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, selectedItem, handleUseItem, inventory.length]);
+  }, [onClose, selectedItem, inventory.length, handleAction]);
+
+  const isSelectedWeaponEquipped =
+    selectedItem?.type === 'weapon' && selectedItem.id === equippedWeaponId;
+  const isActionable =
+    selectedItem &&
+    (['consumable', 'flask'].includes(selectedItem.type) ||
+      (selectedItem.type === 'weapon' && !isSelectedWeaponEquipped));
 
   return (
     <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-[4vmin]">
@@ -71,29 +91,39 @@ export const InventoryMenu: React.FC<InventoryMenuProps> = ({
               <div className="text-neutral-600 p-8 text-center italic">Empty...</div>
             )}
 
-            {inventory.map((item, idx) => (
-              <div
-                key={idx}
-                onClick={() => setSelectedIndex(idx)}
-                onMouseEnter={() => setSelectedIndex(idx)}
-                className={`p-[2vmin] border transition-all cursor-pointer flex justify-between items-center
-                  ${idx === safeIndex ? 'bg-neutral-900 border-red-900/50 text-red-100' : 'bg-transparent border-transparent text-neutral-500 hover:bg-neutral-900/50'}`}
-              >
-                <div className="flex items-center gap-[2vmin]">
-                  <div
-                    className={`w-[1vmin] h-[1vmin] rotate-45 ${idx === safeIndex ? 'bg-red-500' : 'bg-neutral-800'}`}
-                  />
-                  <span className="uppercase tracking-wider" style={{ fontSize: '1.6vmin' }}>
-                    {item.name}
-                  </span>
+            {inventory.map((item, idx) => {
+              const isEquipped = item.type === 'weapon' && item.id === equippedWeaponId;
+              return (
+                <div
+                  key={idx}
+                  onClick={() => setSelectedIndex(idx)}
+                  onMouseEnter={() => setSelectedIndex(idx)}
+                  className={`p-[2vmin] border transition-all cursor-pointer flex justify-between items-center
+                    ${idx === safeIndex ? 'bg-neutral-900 border-red-900/50 text-red-100' : 'bg-transparent border-transparent text-neutral-500 hover:bg-neutral-900/50'}`}
+                >
+                  <div className="flex items-center gap-[2vmin]">
+                    <div
+                      className={`w-[1vmin] h-[1vmin] rotate-45 ${idx === safeIndex ? 'bg-red-500' : 'bg-neutral-800'}`}
+                    />
+                    <span className="uppercase tracking-wider" style={{ fontSize: '1.6vmin' }}>
+                      {item.name}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-[1vmin]">
+                    {isEquipped && (
+                      <span className="text-amber-500 text-[1.2vmin] uppercase tracking-tighter border border-amber-900/50 px-1 bg-amber-950/30">
+                        Equipped
+                      </span>
+                    )}
+                    {item.count > 1 && (
+                      <span className="font-mono text-neutral-600" style={{ fontSize: '1.4vmin' }}>
+                        x{item.count}
+                      </span>
+                    )}
+                  </div>
                 </div>
-                {item.count > 1 && (
-                  <span className="font-mono text-neutral-600" style={{ fontSize: '1.4vmin' }}>
-                    x{item.count}
-                  </span>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -124,7 +154,7 @@ export const InventoryMenu: React.FC<InventoryMenuProps> = ({
                 </p>
                 {selectedItem.effect && (
                   <div
-                    className="flex items-center gap-[2vmin] text-green-700/80 font-mono"
+                    className="flex items-center gap-[2vmin] text-green-700/80 font-mono mb-[2vmin]"
                     style={{ fontSize: '1.5vmin' }}
                   >
                     <span className="uppercase text-neutral-600">Effect</span>
@@ -134,21 +164,41 @@ export const InventoryMenu: React.FC<InventoryMenuProps> = ({
                     </span>
                   </div>
                 )}
+                {selectedItem.stats?.attack && (
+                  <div
+                    className="flex items-center gap-[2vmin] text-amber-500/80 font-mono"
+                    style={{ fontSize: '1.5vmin' }}
+                  >
+                    <span className="uppercase text-neutral-600">Attack</span>
+                    <span>+{selectedItem.stats.attack}</span>
+                  </div>
+                )}
               </div>
 
               <button
-                onClick={() => {
-                  if (['consumable', 'flask'].includes(selectedItem.type)) {
-                    handleUseItem(selectedItem);
-                  }
-                }}
-                className="w-full bg-red-950/30 hover:bg-red-900 text-red-200 border border-red-900/50 hover:border-red-500 uppercase tracking-[0.2em] transition-all group mb-[2vmin]"
+                disabled={!isActionable}
+                onClick={() => handleAction(selectedItem)}
+                className={`w-full border uppercase tracking-[0.2em] transition-all group mb-[2vmin] ${
+                  isSelectedWeaponEquipped
+                    ? 'bg-neutral-900 border-neutral-800 text-amber-500/60 cursor-default'
+                    : isActionable
+                      ? 'bg-red-950/30 hover:bg-red-900 text-red-200 border-red-900/50 hover:border-red-500'
+                      : 'bg-neutral-900/30 border-neutral-800 text-neutral-600 cursor-not-allowed'
+                }`}
                 style={{ padding: '2.5vmin', fontSize: '1.5vmin' }}
               >
                 <span className="group-hover:mr-[1vmin] transition-all">
-                  {['consumable', 'flask'].includes(selectedItem.type) ? 'Consume' : 'Equip'}
+                  {selectedItem.type === 'weapon'
+                    ? isSelectedWeaponEquipped
+                      ? 'Equipped'
+                      : 'Equip'
+                    : ['consumable', 'flask'].includes(selectedItem.type)
+                      ? 'Consume'
+                      : 'Cannot Use'}
                 </span>
-                <span className="opacity-0 group-hover:opacity-100 transition-all">➢</span>
+                {isActionable && (
+                  <span className="opacity-0 group-hover:opacity-100 transition-all">➢</span>
+                )}
               </button>
 
               <div className="text-neutral-600 font-mono text-[1.2vmin] text-center">

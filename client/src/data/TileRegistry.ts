@@ -14,12 +14,6 @@ export interface TileDef {
   itemId?: string;
 }
 
-// Single source of truth for every tile id in the game. MapData.ts imports
-// this (re-exported as TILE_TYPES) instead of maintaining its own parallel
-// numbering — previously the two were hand-kept in sync, and drifted:
-// ORC2/ORC3/VAMPIRE1/VAMPIRE_BOSS ended up reusing ids 14-17, which were
-// already floor tiles here (dirt_patch_1, stone_floor_2, ...). Any new tile
-// id should be added ONLY here.
 export const TILE_IDS = {
   // --- SPECIAL / DEFAULTS ---
   FLOOR_BASE: 0,
@@ -31,10 +25,9 @@ export const TILE_IDS = {
   KEY_SILVER: 6,
   POTION_RED: 20,
   POTION_BLUE: 21,
+  IRON_BROADSWORD: 22,
 
   // --- ENEMY SPAWN MARKERS ---
-  // Previously 14-17, which collided with the floor tile ids below.
-  // Moved to a dedicated unused range.
   ORC2: 40,
   ORC3: 41,
   VAMPIRE1: 42,
@@ -135,11 +128,17 @@ export const TILE_REGISTRY: Record<number, TileDef> = {
     solid: false,
     itemId: 'silver_key',
   },
+  [TILE_IDS.IRON_BROADSWORD]: {
+    id: TILE_IDS.IRON_BROADSWORD,
+    name: 'iron_broadsword',
+    type: 'item',
+    atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: false,
+    itemId: 'iron_broadsword',
+  },
 
   // --- ENEMY SPAWN MARKERS ---
-  // Read by LevelBuilder to place enemies; not pickups (no itemId), so the
-  // generic item-pickup branch in Game.tsx's handleInteract correctly
-  // ignores them, same as SKELETON above.
   [TILE_IDS.ORC2]: {
     id: TILE_IDS.ORC2,
     name: 'orc2_spawn',
@@ -179,7 +178,7 @@ export const TILE_REGISTRY: Record<number, TileDef> = {
     type: 'prop',
     atlasPos: { col: 46, row: 13 },
     size: { w: 1, h: 1 },
-    solid: false,
+    solid: true,
   },
 
   // --- FLOORS ---
@@ -253,7 +252,6 @@ export const TILE_REGISTRY: Record<number, TileDef> = {
     id: TILE_IDS.DOOR_OPEN,
     name: 'door_open',
     type: 'floor',
-    // Matches standard floor (46, 13) instead of (0, 0)
     atlasPos: { col: 46, row: 13 },
     size: { w: 1, h: 1 },
     solid: false,
@@ -345,9 +343,9 @@ export const TILE_REGISTRY: Record<number, TileDef> = {
     id: TILE_IDS.TORCH_WALL,
     name: 'torch_wall',
     type: 'wall',
-    atlasPos: { col: 25, row: 7 }, // Generic wall background
+    atlasPos: { col: 25, row: 7 },
     size: { w: 1, h: 5 },
-    solid: true,
+    solid: false,
   },
   [TILE_IDS.CANDLE]: {
     id: TILE_IDS.CANDLE,

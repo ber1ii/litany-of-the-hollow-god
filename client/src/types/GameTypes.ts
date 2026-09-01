@@ -28,7 +28,7 @@ export interface PlayerStats {
   flaskCharges: number;
   maxFlaskCharges: number;
 
-  // New: Core Inventory Array
+  // Core Inventory Array
   inventory: InventoryItem[];
 
   statusEffects: StatusEffect[];

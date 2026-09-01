@@ -8,27 +8,25 @@ type ThreeShader = {
 };
 
 export const SmartWallShader = {
-  // We strictly export the compiler function now.
-  // No shared 'uniforms' object here to prevent memory linking issues.
   onBeforeCompile: (shader: ThreeShader) => {
     // 1. Inject Uniforms
     shader.uniforms.uPlayerPos = { value: new THREE.Vector3(0, 0, 0) };
     shader.uniforms.uWallType = { value: 0.0 };
     shader.uniforms.uIsVertical = { value: 0.0 };
 
-    // 2. Inject Varying for World Position
+    // 2. Inject Varying for World Position (Renamed to vCustomWorldPos to fix crash)
     shader.vertexShader = shader.vertexShader.replace(
       '#include <common>',
       `
       #include <common>
-      varying vec3 vWorldPosition;
+      varying vec3 vCustomWorldPos;
       `
     );
     shader.vertexShader = shader.vertexShader.replace(
       '#include <worldpos_vertex>',
       `
       #include <worldpos_vertex>
-      vWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;
+      vCustomWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
       `
     );
 
@@ -40,7 +38,7 @@ export const SmartWallShader = {
       uniform vec3 uPlayerPos;
       uniform float uWallType;
       uniform float uIsVertical;
-      varying vec3 vWorldPosition;
+      varying vec3 vCustomWorldPos;
       `
     );
 
@@ -52,14 +50,14 @@ export const SmartWallShader = {
       // --- SMART WALL LOGIC ---
       if (uWallType > 0.5) {
         // 1. Check "South" of player (add buffer -0.2)
-        if (vWorldPosition.z > uPlayerPos.z - 0.2) {
+        if (vCustomWorldPos.z > uPlayerPos.z - 0.2) {
           
           // 2. Determine Margin (0.3 for vertical, 1.5 for horizontal)
           // We use mix() instead of ternary for better GPU compatibility
           float margin = mix(1.5, 0.3, step(0.5, uIsVertical));
 
           // 3. Distance Check (X-axis only)
-          float dist = abs(vWorldPosition.x - uPlayerPos.x);
+          float dist = abs(vCustomWorldPos.x - uPlayerPos.x);
 
           // 4. Calculate Fade
           float fade = smoothstep(margin - 0.5, margin + 0.5, dist);

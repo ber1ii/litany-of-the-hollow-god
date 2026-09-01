@@ -11,6 +11,24 @@ interface MinimapProps {
   enemyTracker: React.RefObject<Map<string, { x: number; z: number }>>;
 }
 
+const COLORS = {
+  bg: '#0a0806',
+  floor: '#161210',
+  floorStroke: '#211b17',
+  wall: '#4a3f33',
+  doorClosed: '#7a3b1e',
+  doorLocked: '#5c6b52',
+  gold: '#a8863f',
+  key: '#8a9483',
+  health: '#7a1f1f',
+  mana: '#2f4a5c',
+  save: '#c2571a',
+  enemy: '#8b1a1a',
+  player: '#c9bfa8',
+  cone: 'rgba(140, 110, 60, 0.10)',
+  compass: '#5e564a',
+};
+
 export const Minimap: React.FC<MinimapProps> = ({
   map,
   playerPos,
@@ -18,23 +36,27 @@ export const Minimap: React.FC<MinimapProps> = ({
   enemyTracker,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  // NEW: persists across frames — every tile the player has ever had
+  // line-of-sight to. Keyed "x,z". Never cleared for this level's lifetime.
+  const exploredTiles = useRef<Set<string>>(new Set());
 
   const ZOOM = 18;
   const VIEW_RADIUS = 10;
   const CANVAS_SIZE = 200;
   const FLASHLIGHT_FOV = Math.PI / 2.5;
   const FLASHLIGHT_DISTANCE = 8;
+  const MEMORY_DIM = 0.35; // opacity for tiles seen before but not currently visible
 
-  // Cached item locations
   const staticItems = useMemo(() => {
     const items: { x: number; z: number; type: string; color: string }[] = [];
     map.forEach((row, z) => {
       row.forEach((tile, x) => {
-        if (tile === TILE_TYPES.GOLD) items.push({ x, z, type: 'gold', color: '#ffd700' });
-        if (tile === TILE_TYPES.KEY_SILVER) items.push({ x, z, type: 'key', color: '#c0c0c0' });
-        if (tile === TILE_TYPES.POTION_RED) items.push({ x, z, type: 'health', color: '#ff4444' });
-        if (tile === TILE_TYPES.POTION_BLUE) items.push({ x, z, type: 'mana', color: '#4444ff' });
-        if (tile === TILE_TYPES.BONFIRE) items.push({ x, z, type: 'save', color: '#ff8800' });
+        if (tile === TILE_TYPES.GOLD) items.push({ x, z, type: 'gold', color: COLORS.gold });
+        if (tile === TILE_TYPES.KEY_SILVER) items.push({ x, z, type: 'key', color: COLORS.key });
+        if (tile === TILE_TYPES.POTION_RED)
+          items.push({ x, z, type: 'health', color: COLORS.health });
+        if (tile === TILE_TYPES.POTION_BLUE) items.push({ x, z, type: 'mana', color: COLORS.mana });
+        if (tile === TILE_TYPES.BONFIRE) items.push({ x, z, type: 'save', color: COLORS.save });
       });
     });
     return items;
@@ -43,15 +65,24 @@ export const Minimap: React.FC<MinimapProps> = ({
   useEffect(() => {
     let animationFrameId: number;
 
-    const draw = (ctx: CanvasRenderingContext2D, px: number, pz: number, pRot: number) => {
-      // Clear & Background
+    const draw = (
+      ctx: CanvasRenderingContext2D,
+      px: number,
+      pz: number,
+      pRot: number,
+      t: number
+    ) => {
       ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
-      ctx.fillStyle = '#050505';
+      ctx.fillStyle = COLORS.bg;
       ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
 
       const centerX = CANVAS_SIZE / 2;
       const centerY = CANVAS_SIZE / 2;
 
+      // FIXED: x*TILE_SIZE is already the tile's CENTER in world space
+      // (matches PlayerController's collision math and LevelBuilder's mesh
+      // placement) — no extra offset needed here. The real bug was the
+      // fillRect math below treating this center point as a corner.
       const toCanvas = (wx: number, wz: number) => ({
         x: centerX + (wx - px) * ZOOM,
         y: centerY + (wz - pz) * ZOOM,
@@ -67,21 +98,33 @@ export const Minimap: React.FC<MinimapProps> = ({
           const tileId = map[z][x];
           if (tileId === 0) continue;
 
+          // --- FOG OF WAR ---
+          const key = `${x},${z}`;
+          const dist = Math.sqrt((x - px) ** 2 + (z - pz) ** 2);
+          const currentlyVisible = dist <= VIEW_RADIUS && hasLineOfSight(px, pz, x, z, map);
+
+          if (currentlyVisible) exploredTiles.current.add(key);
+          else if (!exploredTiles.current.has(key)) continue; // never seen — stays black
+
+          ctx.globalAlpha = currentlyVisible ? 1 : MEMORY_DIM;
+
           const def = getTileDef(tileId);
           const { x: cx, y: cy } = toCanvas(x * TILE_SIZE, z * TILE_SIZE);
 
           const isClosedDoor =
             tileId === TILE_TYPES.DOOR_CLOSED || tileId === TILE_TYPES.DOOR_LOCKED_SILVER;
 
-          // --- DRAW WALLS & DOORS ---
           if (def.type === 'wall' || isClosedDoor) {
-            ctx.fillStyle = isClosedDoor ? '#d97706' : '#555';
+            ctx.fillStyle =
+              tileId === TILE_TYPES.DOOR_LOCKED_SILVER
+                ? COLORS.doorLocked
+                : tileId === TILE_TYPES.DOOR_CLOSED
+                  ? COLORS.doorClosed
+                  : COLORS.wall;
 
             const orientation = getWallOrientation(x, z, map);
-
-            let w = def.size.w;
+            let w = 1;
             let h = 1;
-
             if (orientation === 'vertical') {
               const temp = w;
               w = h;
@@ -89,40 +132,43 @@ export const Minimap: React.FC<MinimapProps> = ({
             }
 
             const WALL_THICKNESS_MAP = 0.4;
-
-            let drawW = ZOOM * w;
-            let drawH = ZOOM * h;
-            let offX = 0;
-            let offY = 0;
+            let drawW: number, drawH: number, offX: number, offY: number;
 
             if (orientation === 'vertical') {
               drawW = ZOOM * WALL_THICKNESS_MAP;
               drawH = ZOOM * h;
-              offX = (ZOOM - drawW) / 2;
-              offY = 0;
+              offX = (ZOOM - drawW) / 2 - ZOOM / 2;
+              offY = -ZOOM / 2;
             } else {
               drawW = ZOOM * w;
               drawH = ZOOM * WALL_THICKNESS_MAP;
-              offX = 0;
-              offY = (ZOOM - drawH) / 2;
+              offX = -ZOOM / 2;
+              offY = (ZOOM - drawH) / 2 - ZOOM / 2;
             }
+            // (cx,cy) from the fixed toCanvas is the tile CENTER, so every
+            // offset here is relative to that center, not a corner.
 
             ctx.fillRect(cx + offX, cy + offY, drawW, drawH);
+            ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(cx + offX, cy + offY, drawW, drawH);
           } else if (
             def.type === 'floor' ||
             tileId === TILE_TYPES.DOOR_OPEN ||
             tileId === TILE_TYPES.BONFIRE
           ) {
-            ctx.fillStyle = '#1a1a1a';
-            ctx.fillRect(cx, cy, ZOOM * def.size.w, ZOOM * (def.size.h || 1));
-            ctx.strokeStyle = '#222';
+            ctx.fillStyle = COLORS.floor;
+            ctx.fillRect(cx - ZOOM / 2, cy - ZOOM / 2, ZOOM, ZOOM);
+            ctx.strokeStyle = COLORS.floorStroke;
             ctx.lineWidth = 1;
-            ctx.strokeRect(cx, cy, ZOOM, ZOOM);
+            ctx.strokeRect(cx - ZOOM / 2, cy - ZOOM / 2, ZOOM, ZOOM);
           }
+
+          ctx.globalAlpha = 1;
         }
       }
 
-      // --- DRAW ITEMS ---
+      // --- ITEMS (only render when currently visible — no memory) ---
       staticItems.forEach((item) => {
         if (
           map[item.z][item.x] === 0 ||
@@ -131,60 +177,55 @@ export const Minimap: React.FC<MinimapProps> = ({
         )
           return;
 
-        const dist = Math.sqrt(Math.pow(item.x - px, 2) + Math.pow(item.z - pz, 2));
+        const dist = Math.sqrt((item.x - px) ** 2 + (item.z - pz) ** 2);
         if (dist > VIEW_RADIUS) return;
+        if (!hasLineOfSight(px, pz, item.x, item.z, map)) return;
 
-        if (hasLineOfSight(px, pz, item.x + 0.5, item.z + 0.5, map)) {
-          const { x: cx, y: cy } = toCanvas(item.x * TILE_SIZE, item.z * TILE_SIZE);
+        const { x: cx, y: cy } = toCanvas(item.x * TILE_SIZE, item.z * TILE_SIZE);
+        ctx.fillStyle = item.color;
 
-          ctx.fillStyle = item.color;
-
-          if (item.type === 'save') {
-            ctx.shadowColor = '#ff5500';
-            ctx.shadowBlur = 15;
-            ctx.beginPath();
-            ctx.fillRect(cx + ZOOM / 2 - 3, cy + ZOOM / 2 - 3, 6, 6);
-            ctx.fill();
-          } else {
-            ctx.shadowColor = item.color;
-            ctx.shadowBlur = 10;
-            ctx.beginPath();
-            ctx.arc(cx + ZOOM / 2, cy + ZOOM / 2, 3, 0, Math.PI * 2);
-            ctx.fill();
-          }
-
-          ctx.shadowBlur = 0;
+        if (item.type === 'save') {
+          ctx.shadowColor = item.color;
+          ctx.shadowBlur = 8;
+          ctx.fillRect(cx - 3, cy - 3, 6, 6);
+        } else {
+          ctx.shadowColor = item.color;
+          ctx.shadowBlur = 6;
+          ctx.beginPath();
+          ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
+          ctx.fill();
         }
+        ctx.shadowBlur = 0;
       });
 
-      // --- DRAW ENEMIES ---
+      // --- ENEMIES (always live, never from memory) ---
       if (enemyTracker.current) {
+        const pulse = 0.65 + 0.35 * Math.sin(t / 350);
+
         enemyTracker.current.forEach((pos) => {
           const ex = pos.x;
           const ez = pos.z;
-
           const dx = ex - px;
           const dz = ez - pz;
           const dist = Math.sqrt(dx * dx + dz * dz);
-
           if (dist > FLASHLIGHT_DISTANCE) return;
 
           const angleToEnemy = Math.atan2(dz, dx);
           let angleDiff = angleToEnemy - pRot;
           while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
           while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-
           const inCone = Math.abs(angleDiff) < FLASHLIGHT_FOV / 2;
 
           if (dist < 1.5 || (inCone && hasLineOfSight(px, pz, ex, ez, map))) {
             const { x: cx, y: cy } = toCanvas(ex, ez);
-
-            ctx.fillStyle = '#ff0000';
-            ctx.shadowColor = '#ff0000';
-            ctx.shadowBlur = 15;
+            ctx.fillStyle = COLORS.enemy;
+            ctx.globalAlpha = pulse;
+            ctx.shadowColor = COLORS.enemy;
+            ctx.shadowBlur = 10 * pulse;
             ctx.beginPath();
-            ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+            ctx.arc(cx, cy, 3.5, 0, Math.PI * 2);
             ctx.fill();
+            ctx.globalAlpha = 1;
             ctx.shadowBlur = 0;
           }
         });
@@ -196,16 +237,17 @@ export const Minimap: React.FC<MinimapProps> = ({
       ctx.rotate(pRot);
 
       const coneGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, ZOOM * FLASHLIGHT_DISTANCE);
-      coneGrad.addColorStop(0, 'rgba(255, 255, 200, 0.15)');
-      coneGrad.addColorStop(1, 'rgba(255, 255, 200, 0)');
-
+      coneGrad.addColorStop(0, COLORS.cone);
+      coneGrad.addColorStop(1, 'rgba(140, 110, 60, 0)');
       ctx.fillStyle = coneGrad;
       ctx.beginPath();
       ctx.moveTo(0, 0);
       ctx.arc(0, 0, ZOOM * FLASHLIGHT_DISTANCE, -FLASHLIGHT_FOV / 2, FLASHLIGHT_FOV / 2);
       ctx.fill();
 
-      ctx.fillStyle = '#00ff00';
+      ctx.fillStyle = COLORS.player;
+      ctx.shadowColor = 'rgba(0,0,0,0.6)';
+      ctx.shadowBlur = 3;
       ctx.beginPath();
       ctx.moveTo(6, 0);
       ctx.lineTo(-4, 4);
@@ -213,24 +255,22 @@ export const Minimap: React.FC<MinimapProps> = ({
       ctx.fill();
       ctx.restore();
 
-      // --- OVERLAY ---
       const grad = ctx.createRadialGradient(
         centerX,
         centerY,
-        CANVAS_SIZE / 2 - 20,
+        CANVAS_SIZE / 2 - 24,
         centerX,
         centerY,
         CANVAS_SIZE / 2
       );
       grad.addColorStop(0, 'rgba(0,0,0,0)');
-      grad.addColorStop(0.8, 'rgba(0,0,0,0.8)');
+      grad.addColorStop(0.75, 'rgba(0,0,0,0.75)');
       grad.addColorStop(1, 'rgba(0,0,0,1)');
-
       ctx.fillStyle = grad;
       ctx.fillRect(0, 0, CANVAS_SIZE, CANVAS_SIZE);
 
-      ctx.strokeStyle = '#333';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#2b241c';
+      ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.arc(centerX, centerY, CANVAS_SIZE / 2 - 2, 0, Math.PI * 2);
       ctx.stroke();
@@ -244,8 +284,7 @@ export const Minimap: React.FC<MinimapProps> = ({
           const px = playerPos.current.x / TILE_SIZE;
           const pz = playerPos.current.z / TILE_SIZE;
           const pRot = playerRotation.current || 0;
-
-          draw(ctx, px, pz, pRot);
+          draw(ctx, px, pz, pRot, performance.now());
         }
       }
       animationFrameId = requestAnimationFrame(renderLoop);
@@ -257,12 +296,14 @@ export const Minimap: React.FC<MinimapProps> = ({
 
   const labelStyle: React.CSSProperties = {
     position: 'absolute',
-    color: '#555',
-    fontSize: '12px',
+    color: COLORS.compass,
+    fontSize: '11px',
     fontFamily: 'monospace',
     fontWeight: 'bold',
+    letterSpacing: '1px',
     pointerEvents: 'none',
     zIndex: 20,
+    textShadow: '1px 1px 0 #000',
   };
 
   return (
@@ -276,7 +317,7 @@ export const Minimap: React.FC<MinimapProps> = ({
         height: '200px',
         borderRadius: '50%',
         background: '#000',
-        boxShadow: '0 0 0 4px #222, 0 0 20px rgba(0,0,0,0.9)',
+        boxShadow: '0 0 0 3px #1c1712, 0 0 0 5px #3a2f22, 0 4px 14px rgba(0,0,0,0.9)',
         overflow: 'hidden',
       }}
     >
@@ -285,10 +326,11 @@ export const Minimap: React.FC<MinimapProps> = ({
           position: 'absolute',
           inset: 0,
           background:
-            'linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06))',
-          backgroundSize: '100% 2px, 3px 100%',
+            'repeating-linear-gradient(0deg, rgba(0,0,0,0.15) 0px, transparent 1px, transparent 2px)',
+          mixBlendMode: 'overlay',
           pointerEvents: 'none',
           zIndex: 10,
+          opacity: 0.5,
         }}
       />
       <canvas
