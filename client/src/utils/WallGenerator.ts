@@ -1,11 +1,8 @@
 import * as THREE from 'three';
-import { TILE_SIZE } from '../components/Game/MapData';
+import { TILE_SIZE, WALL_THICKNESS, STRUCTURE_HEIGHT_DEFAULT } from '../components/Game/MapData';
 import type { TileDef } from '../data/TileRegistry';
 import { getTileDef } from '../data/TileRegistry';
 import { getAtlasUVs } from './GeometryUtils';
-
-// Thickness Constant (0.25 = 1/4th of a tile)
-const WALL_THICKNESS = 0.25;
 
 export const getWallGroups = (map: number[][]) => {
   const groups: { x: number; z: number; id: number }[][] = [];
@@ -115,8 +112,12 @@ export const createWallGeometry = (tileDef: TileDef, cullFaces: CullOptions = {}
   const width = tileDef.size.w * TILE_SIZE;
   const depth = isStructure ? tileDef.size.h * TILE_SIZE : WALL_THICKNESS;
 
-  // Use wallHeight if provided; otherwise structures default to 5, modular walls use size.h
-  const height = (tileDef.wallHeight ?? (isStructure ? 5 : tileDef.size.h)) * TILE_SIZE;
+  // Use wallHeight if provided; otherwise structures default to STRUCTURE_HEIGHT_DEFAULT, modular walls use size.h
+  const height = tileDef.wallHeight
+    ? tileDef.wallHeight * TILE_SIZE
+    : isStructure
+      ? STRUCTURE_HEIGHT_DEFAULT
+      : tileDef.size.h * TILE_SIZE;
 
   // LOCAL COORDINATES: Centered on X/Z, Bottom at Y=0
   const xL = -width / 2;

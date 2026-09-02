@@ -2,7 +2,7 @@ import React, { useRef, useMemo } from 'react';
 import { useTexture } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { TILE_SIZE } from './MapData';
+import { TILE_SIZE, GOLD_SIZE } from './MapData';
 
 interface GoldProps {
   x: number;
@@ -43,8 +43,8 @@ export const Gold: React.FC<GoldProps> = ({ x, z }) => {
   });
 
   return (
-    <mesh ref={meshRef} position={[x * TILE_SIZE, 0.15, z * TILE_SIZE]} scale={[0.8, 0.8, 0.8]}>
-      <planeGeometry args={[1, 1]} />
+    <mesh ref={meshRef} position={[x * TILE_SIZE, 0.15, z * TILE_SIZE]}>
+      <planeGeometry args={[GOLD_SIZE, GOLD_SIZE]} />
       <meshStandardMaterial
         ref={materialRef}
         map={textures[0]} // Start with frame 1

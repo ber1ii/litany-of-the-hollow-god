@@ -3,7 +3,7 @@ import { useTexture } from '@react-three/drei';
 import { useSpring, animated } from '@react-spring/three';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { TILE_SIZE } from './MapData';
+import { TILE_SIZE, DOOR_WIDTH, DOOR_HEIGHT, WALL_TOTAL_HEIGHT, WALL_THICKNESS } from './MapData';
 import { SHEET_CONFIG } from '../../data/TileRegistry';
 import { SmartWallShader } from '../Materials/SmartFadeMaterial';
 
@@ -145,11 +145,7 @@ export const Door: React.FC<DoorProps> = ({ x, z, isOpen, isLocked, rotation = 0
     }
   });
 
-  const DOOR_WIDTH = 0.9;
-  const DOOR_HEIGHT = 1.4;
-  const WALL_TOTAL_HEIGHT = 3.0;
   const FILLER_HEIGHT = WALL_TOTAL_HEIGHT - DOOR_HEIGHT;
-  const WALL_THICKNESS = 0.25;
 
   const { slideOffset } = useSpring({
     slideOffset: isOpen ? DOOR_WIDTH * 0.85 : 0,

@@ -1,7 +1,7 @@
 import React, { useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Billboard, useTexture } from '@react-three/drei';
-import { TILE_SIZE } from './MapData';
+import { TILE_SIZE, LOOT_DROP_SIZE } from './MapData';
 import * as THREE from 'three';
 import type { ItemDef } from '../../data/ItemRegistry';
 
@@ -60,7 +60,7 @@ export const LootDrop: React.FC<LootDropProps> = ({ x, z, item }) => {
       <Billboard>
         <mesh>
           {/* Size: 0.25 (approx 1/4 tile) */}
-          <planeGeometry args={[0.25, 0.25]} />
+          <planeGeometry args={[LOOT_DROP_SIZE, LOOT_DROP_SIZE]} />
 
           <meshStandardMaterial
             ref={materialRef}

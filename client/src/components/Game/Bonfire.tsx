@@ -2,7 +2,7 @@ import React, { useRef, useState, useMemo, useEffect } from 'react';
 import { useTexture, Billboard } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { TILE_SIZE } from './MapData';
+import { TILE_SIZE, BONFIRE_SIZE, TORCH_SIZE } from './MapData';
 import { AudioManager } from '../../managers/AudioManager';
 
 const TORCH_FRAMES = [
@@ -62,8 +62,7 @@ export const Bonfire: React.FC<BonfireProps> = ({ x, z }) => {
     <group position={[x * TILE_SIZE, 0, z * TILE_SIZE]}>
       <Billboard>
         <mesh position={[0, 0.2, 0]}>
-          {/* Resized: Was [1,1], now [0.6, 0.6] */}
-          <planeGeometry args={[0.6, 0.6]} />
+          <planeGeometry args={[BONFIRE_SIZE, BONFIRE_SIZE]} />
           <meshBasicMaterial
             map={textures[frameIndex]}
             transparent
@@ -84,7 +83,7 @@ export const Bonfire: React.FC<BonfireProps> = ({ x, z }) => {
 
       {/* Subtle floor glow */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]}>
-        <circleGeometry args={[0.6, 16]} />
+        <circleGeometry args={[TORCH_SIZE, 16]} />
         <meshBasicMaterial color="#ff4400" transparent opacity={0.2} />
       </mesh>
     </group>

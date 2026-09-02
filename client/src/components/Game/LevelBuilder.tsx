@@ -7,12 +7,13 @@ import { Gold } from './Gold';
 import { Monster } from './Monster';
 import { getWallGroups } from '../../utils/WallGenerator';
 import { getWallOrientation } from '../../utils/WallOrientation';
-import { TILE_TYPES, TILE_SIZE } from './MapData';
+import { TILE_TYPES, TILE_SIZE, WALL_THICKNESS, STRUCTURE_HEIGHT_DEFAULT } from './MapData';
 import { getTileDef, SHEET_CONFIG } from '../../data/TileRegistry';
 import type { TileDef } from '../../data/TileRegistry';
 import { Torch } from './Torch';
 import { Candle } from './Candle';
 import { Bonfire } from './Bonfire';
+import { Sign } from './Sign';
 import { LootDrop } from './LootDrop';
 import { ITEM_REGISTRY } from '../../data/ItemRegistry';
 import type { MonsterType } from '../../types/GameTypes';
@@ -75,14 +76,16 @@ const createSmartGeometry = (
   cullLeft: boolean,
   cullRight: boolean
 ) => {
-  const WALL_THICKNESS = 0.25;
   const isStructure = tileDef.placement === 'structure';
 
   const baseWidth = tileDef.size.w * TILE_SIZE;
   const depth = isStructure ? tileDef.size.h * TILE_SIZE : WALL_THICKNESS;
 
-  // Use wallHeight if provided; otherwise structures default to 5, modular walls use size.h
-  const height = tileDef.wallHeight ?? (isStructure ? 5 : tileDef.size.h);
+  const height = tileDef.wallHeight
+    ? tileDef.wallHeight * TILE_SIZE
+    : isStructure
+      ? STRUCTURE_HEIGHT_DEFAULT
+      : tileDef.size.h * TILE_SIZE;
 
   const totalWidth = baseWidth + stretchLeft + stretchRight;
   const geometry = new THREE.BoxGeometry(totalWidth, height, depth);
@@ -430,6 +433,9 @@ export const LevelBuilder: React.FC<LevelBuilderProps> = ({
         }
         if (tile === TILE_TYPES.BONFIRE) {
           list.push(<Bonfire key={`bonfire-${x}-${z}`} x={x} z={z} />);
+        }
+        if (tile === TILE_TYPES.SIGN) {
+          list.push(<Sign key={`sign-${x}-${z}`} x={x} z={z} />);
         }
 
         // --- 5. GENERIC ITEMS (REGISTRY) ---

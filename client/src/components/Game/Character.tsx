@@ -3,6 +3,7 @@ import { useTexture, Billboard } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { getSpritePaths } from '../../utils/assetUtils';
+import { CHARACTER_SIZE } from './MapData';
 
 interface CharacterProps {
   action: 'idle' | 'walk';
@@ -47,7 +48,7 @@ export const Character: React.FC<CharacterProps> = ({ action, direction, positio
   return (
     <Billboard position={position} lockX={false} lockY={false} lockZ={false}>
       <mesh>
-        <planeGeometry args={[2, 2]} />
+        <planeGeometry args={[CHARACTER_SIZE, CHARACTER_SIZE]} />
         <meshStandardMaterial map={textures[frameIndex]} transparent alphaTest={0.5} />
       </mesh>
     </Billboard>

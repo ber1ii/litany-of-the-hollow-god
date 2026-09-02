@@ -2,7 +2,7 @@ import React, { useRef, useState, useMemo } from 'react';
 import { useTexture, Billboard } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { TILE_SIZE } from './MapData';
+import { TILE_SIZE, CANDLE_HEIGHT, CANDLE_WIDTH } from './MapData';
 
 const CANDLE_FRAMES = [
   '/sprites/props/candle/candleB_01.png',
@@ -52,7 +52,7 @@ export const Candle: React.FC<CandleProps> = ({ x, z }) => {
     <group position={[x * TILE_SIZE, 0.1, z * TILE_SIZE]}>
       <Billboard>
         <mesh>
-          <planeGeometry args={[0.15, 0.2]} />
+          <planeGeometry args={[CANDLE_WIDTH, CANDLE_HEIGHT]} />
           <meshBasicMaterial map={textures[frameIndex]} transparent alphaTest={0.5} />
         </mesh>
       </Billboard>

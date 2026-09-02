@@ -10,6 +10,7 @@ export interface TileDef {
   type: 'floor' | 'wall' | 'prop' | 'item' | 'door';
   atlasPos: { col: number; row: number };
   size: { w: number; h: number }; // Size in "tiles"
+  footprint?: { w: number; h: number };
   wallHeight?: number; // Independent vertical height for structures
   solid?: boolean;
   itemId?: string;
@@ -39,6 +40,7 @@ export const TILE_IDS = {
   TORCH_WALL: 7,
   CANDLE: 8,
   BONFIRE: 9,
+  SIGN: 45,
 
   // --- FLOORS ---
   STONE_FLOOR_1: 10,
@@ -363,6 +365,14 @@ export const TILE_REGISTRY: Record<number, TileDef> = {
   [TILE_IDS.CANDLE]: {
     id: TILE_IDS.CANDLE,
     name: 'candle',
+    type: 'prop',
+    atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: false,
+  },
+  [TILE_IDS.SIGN]: {
+    id: TILE_IDS.SIGN,
+    name: 'sign',
     type: 'prop',
     atlasPos: { col: 0, row: 0 },
     size: { w: 1, h: 1 },

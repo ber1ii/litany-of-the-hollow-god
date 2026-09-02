@@ -3,7 +3,7 @@ import { useTexture, Billboard } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { getSpritePaths } from '../../utils/assetUtils';
-import { TILE_SIZE } from './MapData';
+import { TILE_SIZE, MONSTER_SCALE } from './MapData';
 import { useMonsterBehavior } from '../../hooks/useMonsterBehavior';
 import type { MonsterBehavior, Direction } from '../../hooks/useMonsterBehavior';
 import type { MonsterType } from '../../types/GameTypes';
@@ -64,7 +64,7 @@ export const Monster: React.FC<MonsterProps> = ({
   onCombatStart,
   enemyTracker,
   onChaseStateChange,
-  scale = 1.4,
+  scale = MONSTER_SCALE,
   active = true,
 }) => {
   const [direction, setDirection] = useState<Direction>('S');

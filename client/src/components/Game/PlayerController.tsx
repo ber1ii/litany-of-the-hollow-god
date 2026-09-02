@@ -3,8 +3,18 @@ import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { Character } from './Character';
 import { useKeyboard } from '../../hooks/useKeyboard';
-import { TILE_SIZE, TILE_TYPES, generateCollisionGrid } from './MapData';
+import {
+  TILE_SIZE,
+  TILE_TYPES,
+  generateCollisionGrid,
+  PLAYER_RADIUS,
+  MOVEMENT_SPEED,
+  WALL_THICKNESS,
+  CAM_OFFSET_Y,
+  CAM_OFFSET_Z,
+} from './MapData';
 import { getTileDef } from '../../data/TileRegistry';
+import { buildStructureFootprint, getEffectiveTileId } from '../../utils/StructureFootprint';
 import { SANITY_CONFIG } from '../../data/SanityConfig';
 import { usePlayerStore } from '../../hooks/usePlayerStore';
 import { AudioManager } from '../../managers/AudioManager';
@@ -47,9 +57,10 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
 
   const collisionGrid = useMemo(() => generateCollisionGrid(map), [map]);
 
-  const PLAYER_RADIUS = 0.2;
-  const MOVEMENT_SPEED = 3;
-  const WALL_THICKNESS = 0.25;
+  // Structure footprint (e.g. dark_archway's 5x6 footprint anchored at a
+  // single 'D' cell) so interact-detection can resolve any cell inside a
+  // multi-tile structure to that structure's tile id, not just the anchor.
+  const footprint = useMemo(() => buildStructureFootprint(map), [map]);
 
   const checkCollision = (nextX: number, nextZ: number) => {
     if (!groupRef.current) return true;
@@ -200,19 +211,39 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
     const pGridZ = Math.round(currentZ / TILE_SIZE);
     const aimDir = currentAim.current.clone().normalize();
 
-    const candidates = [
-      { x: pGridX, z: pGridZ },
-      {
-        x: Math.round((currentX + aimDir.x * 0.8) / TILE_SIZE),
-        z: Math.round((currentZ + aimDir.z * 0.8) / TILE_SIZE),
-      },
+    const primaryDx = Math.abs(aimDir.x) > Math.abs(aimDir.z) ? Math.sign(aimDir.x) : 0;
+    const primaryDz = Math.abs(aimDir.x) > Math.abs(aimDir.z) ? 0 : Math.sign(aimDir.z);
+
+    const neighborOffsets = [
+      { x: primaryDx, z: primaryDz }, // facing direction — checked first
+      { x: 1, z: 0 },
+      { x: -1, z: 0 },
+      { x: 0, z: 1 },
+      { x: 0, z: -1 },
     ];
+
+    const candidates = [{ x: pGridX, z: pGridZ }];
+    const seen = new Set(candidates.map((c) => `${c.x},${c.z}`));
+    for (const off of neighborOffsets) {
+      const cx = pGridX + off.x;
+      const cz = pGridZ + off.z;
+      const key = `${cx},${cz}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        candidates.push({ x: cx, z: cz });
+      }
+    }
 
     let foundCandidate: { x: number; z: number } | null = null;
 
     for (const c of candidates) {
       if (c.z >= 0 && c.z < map.length && c.x >= 0 && c.x < map[0].length) {
-        const id = map[c.z][c.x];
+        // Resolve via the structure footprint, not the raw map cell: a
+        // multi-tile structure like dark_archway only has its id written
+        // at the anchor cell, but every cell in its footprint should still
+        // read as that structure for interact purposes (e.g. standing
+        // next to the archway's doorway edge, not just at its anchor).
+        const id = getEffectiveTileId(map, footprint, c.x, c.z);
         const def = getTileDef(id);
 
         if (
@@ -222,7 +253,9 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
           id === TILE_TYPES.DOOR_CLOSED ||
           id === TILE_TYPES.DOOR_OPEN ||
           id === TILE_TYPES.DOOR_LOCKED_SILVER ||
-          id === TILE_TYPES.BONFIRE
+          id === TILE_TYPES.BONFIRE ||
+          id === TILE_TYPES.SIGN ||
+          id === TILE_TYPES.ARCH_DARK
         ) {
           foundCandidate = c;
           break;
@@ -310,9 +343,6 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
     setDirection(getDirectionFromAngle(lookAngle));
 
     playerRotRef.current = lookAngle;
-
-    const CAM_OFFSET_Y = 3;
-    const CAM_OFFSET_Z = 2.5;
 
     const dampFactor = 1 - Math.exp(-6 * delta);
 

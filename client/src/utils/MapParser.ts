@@ -53,6 +53,7 @@ export const getMapLegend = (): Record<string, number> => ({
   X: TILE_IDS.ORC3,
   v: TILE_IDS.VAMPIRE1,
   V: TILE_IDS.VAMPIRE_BOSS,
+  Y: TILE_IDS.SIGN,
 });
 
 export const getSpawnPosition = (asciiMap: string[]): { x: number; z: number } => {

@@ -83,9 +83,9 @@ export const Minimap: React.FC<MinimapProps> = ({
       // (matches PlayerController's collision math and LevelBuilder's mesh
       // placement) — no extra offset needed here. The real bug was the
       // fillRect math below treating this center point as a corner.
-      const toCanvas = (wx: number, wz: number) => ({
-        x: centerX + (wx - px) * ZOOM,
-        y: centerY + (wz - pz) * ZOOM,
+      const toCanvas = (tx: number, tz: number) => ({
+        x: centerX + (tx - px) * ZOOM,
+        y: centerY + (tz - pz) * ZOOM,
       });
 
       const startX = Math.max(0, Math.floor(px - VIEW_RADIUS));
@@ -109,7 +109,7 @@ export const Minimap: React.FC<MinimapProps> = ({
           ctx.globalAlpha = currentlyVisible ? 1 : MEMORY_DIM;
 
           const def = getTileDef(tileId);
-          const { x: cx, y: cy } = toCanvas(x * TILE_SIZE, z * TILE_SIZE);
+          const { x: cx, y: cy } = toCanvas(x, z);
 
           const isClosedDoor =
             tileId === TILE_TYPES.DOOR_CLOSED || tileId === TILE_TYPES.DOOR_LOCKED_SILVER;
@@ -181,7 +181,7 @@ export const Minimap: React.FC<MinimapProps> = ({
         if (dist > VIEW_RADIUS) return;
         if (!hasLineOfSight(px, pz, item.x, item.z, map)) return;
 
-        const { x: cx, y: cy } = toCanvas(item.x * TILE_SIZE, item.z * TILE_SIZE);
+        const { x: cx, y: cy } = toCanvas(item.x, item.z);
         ctx.fillStyle = item.color;
 
         if (item.type === 'save') {
@@ -203,8 +203,8 @@ export const Minimap: React.FC<MinimapProps> = ({
         const pulse = 0.65 + 0.35 * Math.sin(t / 350);
 
         enemyTracker.current.forEach((pos) => {
-          const ex = pos.x;
-          const ez = pos.z;
+          const ex = pos.x / TILE_SIZE;
+          const ez = pos.z / TILE_SIZE;
           const dx = ex - px;
           const dz = ez - pz;
           const dist = Math.sqrt(dx * dx + dz * dz);

@@ -2,7 +2,7 @@ import React, { useRef, useState, useMemo, useEffect } from 'react';
 import { useTexture, Billboard } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { TILE_SIZE } from './MapData';
+import { TILE_SIZE, TORCH_SIZE } from './MapData';
 import { AudioManager } from '../../managers/AudioManager';
 
 const TORCH_FRAMES = [
@@ -64,7 +64,7 @@ export const Torch: React.FC<TorchProps> = ({ x, z }) => {
     <group position={[x * TILE_SIZE, 0.25, z * TILE_SIZE]}>
       <Billboard>
         <mesh>
-          <planeGeometry args={[0.34, 0.34]} />
+          <planeGeometry args={[TORCH_SIZE, TORCH_SIZE]} />
           <meshBasicMaterial map={torchTextures[frameIndex]} transparent alphaTest={0.5} />
         </mesh>
       </Billboard>

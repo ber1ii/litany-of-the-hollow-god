@@ -1,7 +1,7 @@
 import React, { useRef, useMemo } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Billboard, useTexture } from '@react-three/drei';
-import { TILE_SIZE } from './MapData';
+import { TILE_SIZE, KEY_ITEM_SIZE } from './MapData';
 import * as THREE from 'three';
 
 interface KeyProps {
@@ -33,7 +33,7 @@ export const Key: React.FC<KeyProps> = ({ x, z }) => {
     <group ref={groupRef} position={[x * TILE_SIZE, 0.25, z * TILE_SIZE]}>
       <Billboard>
         <mesh>
-          <planeGeometry args={[0.4, 0.4]} />
+          <planeGeometry args={[KEY_ITEM_SIZE, KEY_ITEM_SIZE]} />
           <meshStandardMaterial
             map={texture}
             transparent

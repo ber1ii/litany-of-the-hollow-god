@@ -9,6 +9,11 @@ export type FootprintGrid = (number | null)[][];
  * orientation logic needed (that's only relevant to 'modular' tiles, which
  * are 1 cell thick and don't need a footprint at all).
  *
+ * Uses `def.footprint` (ground-plane occupancy) when present, falling back
+ * to `def.size` (atlas sprite size) otherwise — the two only diverge for
+ * tiles like tall archways, where the sprite is many tiles high in the
+ * atlas but only occupies a shallow strip on the ground.
+ *
  * Anchor cells are included in the footprint too, so any code that just
  * wants "what structure (if any) claims this cell" doesn't need to special
  * case the anchor vs. the rest of the rectangle.
@@ -26,8 +31,10 @@ export const buildStructureFootprint = (map: number[][]): FootprintGrid => {
       const def = getTileDef(id);
       if (def.placement !== 'structure') continue;
 
-      for (let dz = 0; dz < def.size.h; dz++) {
-        for (let dx = 0; dx < def.size.w; dx++) {
+      const fp = def.footprint ?? def.size;
+
+      for (let dz = 0; dz < fp.h; dz++) {
+        for (let dx = 0; dx < fp.w; dx++) {
           const fz = z + dz;
           const fx = x + dx;
           if (fz < height && fx < width) {
@@ -56,8 +63,22 @@ export const getEffectiveTileId = (
   z: number
 ): number => {
   const raw = map[z]?.[x] ?? 0;
-  if (raw !== 0) return raw;
-  return footprint[z]?.[x] ?? 0;
+  const claimed = footprint[z]?.[x] ?? null;
+
+  // A structure's footprint should win over a plain floor tile drawn
+  // underneath it — levels are authored as flat ASCII, so cells inside a
+  // structure's footprint can still carry their own floor character for
+  // visual continuity (e.g. the archway's own row). Only literal non-floor
+  // entities on the raw map (doors, items, other structures) should take
+  // priority over the footprint claim.
+  if (claimed !== null) {
+    const rawDef = raw !== 0 ? getTileDef(raw) : null;
+    if (!rawDef || rawDef.type === 'floor') {
+      return claimed;
+    }
+  }
+
+  return raw;
 };
 
 /**
@@ -81,8 +102,10 @@ export const placeStructure = (map: number[][], id: number, x: number, z: number
   const height = map.length;
   const width = map[0]?.length ?? 0;
 
-  for (let dz = 0; dz < def.size.h; dz++) {
-    for (let dx = 0; dx < def.size.w; dx++) {
+  const fp = def.footprint ?? def.size;
+
+  for (let dz = 0; dz < fp.h; dz++) {
+    for (let dx = 0; dx < fp.w; dx++) {
       const tz = z + dz;
       const tx = x + dx;
       if (tz >= height || tx >= width || tz < 0 || tx < 0) {

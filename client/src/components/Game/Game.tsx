@@ -1,15 +1,16 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { AtlasFloor } from './AtlasFloor';
 import { PlayerController } from './PlayerController';
 import * as THREE from 'three';
 import { LevelBuilder } from './LevelBuilder';
-import { TILE_TYPES, TILE_SIZE, PLAYER_SPAWN } from './MapData';
+import { TILE_TYPES, TILE_SIZE, PLAYER_SPAWN, LEVEL_2_SPAWN } from './MapData';
 import { CombatScene } from '../Combat/CombatScene';
 import { CombatHud } from '../Combat/CombatHud';
 import type { InventoryItem } from '../../types/GameTypes';
 import { ITEM_REGISTRY } from '../../data/ItemRegistry';
 import { getTileDef } from '../../data/TileRegistry';
+import { buildStructureFootprint, getEffectiveTileId } from '../../utils/StructureFootprint';
 import { InventoryMenu } from '../UI/InventoryMenu';
 import { BonfireMenu } from '../UI/BonfireMenu';
 import { LevelUpMenu } from '../UI/LevelUpMenu';
@@ -25,6 +26,8 @@ import { Minimap } from './Minimap';
 import { DeathScreen } from '../UI/DeathScreen';
 import { AudioManager } from '../../managers/AudioManager';
 import { InteractPrompt } from './InteractPrompt';
+import { getSignData, type SignEntry } from '../../data/SignData';
+import { SignDialog } from './SignDialog';
 
 const FOG_COLOR = '#040408';
 
@@ -67,9 +70,11 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
   const unlockSkill = usePlayerStore((state) => state.purchaseSkill);
   const setStats = usePlayerStore((state) => state.setStats);
 
-  const [currentLevelId] = useState(
+  const [currentLevelId, setCurrentLevelId] = useState(
     initialSaveData ? initialSaveData.currentLevelId : INITIAL_LEVEL_ID
   );
+
+  const [activeSign, setActiveSign] = useState<SignEntry | null>(null);
 
   const levelChanges = useRef<Map<string, Map<string, number>>>(
     initialSaveData ? SaveManager.deserializeLevelChanges(initialSaveData.levelChanges) : new Map()
@@ -92,6 +97,11 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
     }
     return activeMap;
   });
+
+  // Structure footprint for the current map — lets handleInteract resolve
+  // any cell inside a multi-tile structure (e.g. dark_archway's 5x6
+  // footprint) to that structure's tile id, not just its anchor cell.
+  const footprint = useMemo(() => buildStructureFootprint(mapData), [mapData]);
 
   // Initialize Store on Mount
   useEffect(() => {
@@ -238,6 +248,16 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === 'e' && activeSign) {
+        setActiveSign(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeSign]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Tab') {
         e.preventDefault();
         if (gameState === 'roam' && !isBonfireMenuOpen && !isSkillTreeOpen && !isLevelUpOpen) {
@@ -330,7 +350,13 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
   };
 
   const handleInteract = (x: number, z: number) => {
-    const tileId = mapData[z][x];
+    // Resolve via the structure footprint, not the raw map cell — a
+    // multi-tile structure like dark_archway only has its id written at
+    // its anchor cell, but PlayerController may hand us the coordinates of
+    // any cell inside its footprint (e.g. the doorway edge facing the
+    // room), so we need the same footprint-aware lookup here to match it
+    // back to the structure correctly.
+    const tileId = getEffectiveTileId(mapData, footprint, x, z);
     const tileDef = getTileDef(tileId);
 
     if (tileId === TILE_TYPES.BONFIRE) {
@@ -342,6 +368,29 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
       AudioManager.play('door-open', { category: 'sfx' });
       updateMapTile(x, z, TILE_TYPES.DOOR_OPEN);
       addNotification('Door opened.');
+      return;
+    }
+
+    if (tileDef.type === 'prop' && tileId === TILE_TYPES.SIGN) {
+      const data = getSignData(x, z);
+      if (data) setActiveSign(data);
+      return;
+    }
+
+    if (tileId === TILE_TYPES.ARCH_DARK) {
+      const nextLevelId = 'LEVEL_2';
+      const nextMap = LEVEL_REGISTRY[nextLevelId];
+      if (nextMap) {
+        setMapData(nextMap.map((row) => [...row]));
+        setCurrentLevelId(nextLevelId);
+        setDeadEnemyIds(new Set());
+        enemyTracker.current.clear();
+        chasingEnemyIds.current.clear();
+        setIsPlayerChased(false);
+        playerPosRef.current.set(LEVEL_2_SPAWN.x * TILE_SIZE, 0, LEVEL_2_SPAWN.z * TILE_SIZE);
+        playerRotationRef.current = 0;
+        addNotification('Entering the beginner area...');
+      }
       return;
     }
 
@@ -500,6 +549,10 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
         !isLevelUpOpen &&
         !isSkillTreeOpen && <InteractPrompt />}
 
+      {gameState === 'roam' && activeSign && (
+        <SignDialog sign={activeSign} onClose={() => setActiveSign(null)} />
+      )}
+
       {gameState === 'gameover' && <DeathScreen onRespawn={handleRespawn} />}
 
       {gameState === 'combat' && (
@@ -557,7 +610,11 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
               playerRef={playerPosRef}
               playerRotRef={playerRotationRef}
               active={
-                gameState === 'roam' && !isInventoryOpen && !isBonfireMenuOpen && !isSkillTreeOpen
+                gameState === 'roam' &&
+                !isInventoryOpen &&
+                !isBonfireMenuOpen &&
+                !isSkillTreeOpen &&
+                !activeSign
               }
             />
           </>
