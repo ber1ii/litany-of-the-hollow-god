@@ -8,7 +8,7 @@ export type MonsterBehavior =
   | { type: 'static'; facing?: Direction; speed?: number }
   | { type: 'patrol'; axis?: 'x' | 'z'; range?: number; speed?: number };
 
-const AGGRO_RANGE = 7;
+const AGGRO_RANGE = 3.5;
 const CHASE_SPEED_MULTIPLIER = 1.4;
 const SEARCH_DURATION = 3.0;
 const CHASE_REPATH_INTERVAL = 0.3;
@@ -145,10 +145,35 @@ export function useMonsterBehavior(
   ): Direction => {
     const dx = playerPos.x - currentPos.current.x;
     const dz = playerPos.z - currentPos.current.z;
+
     const distance = Math.sqrt(dx * dx + dz * dz);
+    const tileDistance = distance / TILE_SIZE; // Convert world units to map tiles
+
+    const isFacingPlayer = () => {
+      if (behavior.type !== 'static' || !behavior.facing) return true;
+
+      // Vector from monster to player
+      const toPlayerX = dx / distance;
+      const toPlayerZ = dz / distance;
+
+      // Map direction string to normalized forward vector
+      const forwardVectors: Record<Direction, { x: number; z: number }> = {
+        N: { x: 0, z: -1 },
+        S: { x: 0, z: 1 },
+        E: { x: 1, z: 0 },
+        W: { x: -1, z: 0 },
+      };
+
+      const fwd = forwardVectors[behavior.facing];
+      const dot = toPlayerX * fwd.x + toPlayerZ * fwd.z;
+
+      // Requires player to be within a 120-degree cone in front of monster (dot product > 0.5)
+      return dot > 0.5;
+    };
 
     const hasLoS =
-      distance < AGGRO_RANGE &&
+      tileDistance < AGGRO_RANGE &&
+      isFacingPlayer() &&
       hasLineOfSight(
         currentPos.current.x,
         currentPos.current.z,

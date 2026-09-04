@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { TILE_SIZE, TILE_TYPES } from './MapData';
 import { getTileDef } from '../../data/TileRegistry';
 import { hasLineOfSight, getWallOrientation } from '../../utils/MinimapUtils';
+import { buildStructureFootprint, getEffectiveTileId } from '../../utils/StructureFootprint';
 
 interface MinimapProps {
   map: number[][];
@@ -36,16 +37,16 @@ export const Minimap: React.FC<MinimapProps> = ({
   enemyTracker,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  // NEW: persists across frames — every tile the player has ever had
-  // line-of-sight to. Keyed "x,z". Never cleared for this level's lifetime.
   const exploredTiles = useRef<Set<string>>(new Set());
+
+  const footprint = useMemo(() => buildStructureFootprint(map), [map]);
 
   const ZOOM = 18;
   const VIEW_RADIUS = 10;
   const CANVAS_SIZE = 200;
   const FLASHLIGHT_FOV = Math.PI / 2.5;
   const FLASHLIGHT_DISTANCE = 8;
-  const MEMORY_DIM = 0.35; // opacity for tiles seen before but not currently visible
+  const MEMORY_DIM = 0.35;
 
   const staticItems = useMemo(() => {
     const items: { x: number; z: number; type: string; color: string }[] = [];
@@ -79,10 +80,6 @@ export const Minimap: React.FC<MinimapProps> = ({
       const centerX = CANVAS_SIZE / 2;
       const centerY = CANVAS_SIZE / 2;
 
-      // FIXED: x*TILE_SIZE is already the tile's CENTER in world space
-      // (matches PlayerController's collision math and LevelBuilder's mesh
-      // placement) — no extra offset needed here. The real bug was the
-      // fillRect math below treating this center point as a corner.
       const toCanvas = (tx: number, tz: number) => ({
         x: centerX + (tx - px) * ZOOM,
         y: centerY + (tz - pz) * ZOOM,
@@ -95,16 +92,17 @@ export const Minimap: React.FC<MinimapProps> = ({
 
       for (let z = startZ; z < endZ; z++) {
         for (let x = startX; x < endX; x++) {
-          const tileId = map[z][x];
+          const tileId = getEffectiveTileId(map, footprint, x, z);
           if (tileId === 0) continue;
 
           // --- FOG OF WAR ---
           const key = `${x},${z}`;
           const dist = Math.sqrt((x - px) ** 2 + (z - pz) ** 2);
-          const currentlyVisible = dist <= VIEW_RADIUS && hasLineOfSight(px, pz, x, z, map);
+          const currentlyVisible =
+            dist <= VIEW_RADIUS && hasLineOfSight(px, pz, x, z, map, footprint);
 
           if (currentlyVisible) exploredTiles.current.add(key);
-          else if (!exploredTiles.current.has(key)) continue; // never seen — stays black
+          else if (!exploredTiles.current.has(key)) continue;
 
           ctx.globalAlpha = currentlyVisible ? 1 : MEMORY_DIM;
 
@@ -114,7 +112,11 @@ export const Minimap: React.FC<MinimapProps> = ({
           const isClosedDoor =
             tileId === TILE_TYPES.DOOR_CLOSED || tileId === TILE_TYPES.DOOR_LOCKED_SILVER;
 
-          if (def.type === 'wall' || isClosedDoor) {
+          const isWallStructure =
+            def.type === 'wall' ||
+            (def.placement === 'structure' && def.type !== 'floor' && def.solid !== false);
+
+          if (isWallStructure || isClosedDoor) {
             ctx.fillStyle =
               tileId === TILE_TYPES.DOOR_LOCKED_SILVER
                 ? COLORS.doorLocked
@@ -122,36 +124,41 @@ export const Minimap: React.FC<MinimapProps> = ({
                   ? COLORS.doorClosed
                   : COLORS.wall;
 
-            const orientation = getWallOrientation(x, z, map);
-            let w = 1;
-            let h = 1;
-            if (orientation === 'vertical') {
-              const temp = w;
-              w = h;
-              h = temp;
-            }
-
-            const WALL_THICKNESS_MAP = 0.4;
-            let drawW: number, drawH: number, offX: number, offY: number;
-
-            if (orientation === 'vertical') {
-              drawW = ZOOM * WALL_THICKNESS_MAP;
-              drawH = ZOOM * h;
-              offX = (ZOOM - drawW) / 2 - ZOOM / 2;
-              offY = -ZOOM / 2;
+            if (def.placement === 'structure') {
+              ctx.fillRect(cx - ZOOM / 2, cy - ZOOM / 2, ZOOM, ZOOM);
+              ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+              ctx.lineWidth = 1;
+              ctx.strokeRect(cx - ZOOM / 2, cy - ZOOM / 2, ZOOM, ZOOM);
             } else {
-              drawW = ZOOM * w;
-              drawH = ZOOM * WALL_THICKNESS_MAP;
-              offX = -ZOOM / 2;
-              offY = (ZOOM - drawH) / 2 - ZOOM / 2;
-            }
-            // (cx,cy) from the fixed toCanvas is the tile CENTER, so every
-            // offset here is relative to that center, not a corner.
+              const orientation = getWallOrientation(x, z, map);
+              let w = 1;
+              let h = 1;
+              if (orientation === 'vertical') {
+                const temp = w;
+                w = h;
+                h = temp;
+              }
 
-            ctx.fillRect(cx + offX, cy + offY, drawW, drawH);
-            ctx.strokeStyle = 'rgba(0,0,0,0.4)';
-            ctx.lineWidth = 1;
-            ctx.strokeRect(cx + offX, cy + offY, drawW, drawH);
+              const WALL_THICKNESS_MAP = 0.4;
+              let drawW: number, drawH: number, offX: number, offY: number;
+
+              if (orientation === 'vertical') {
+                drawW = ZOOM * WALL_THICKNESS_MAP;
+                drawH = ZOOM * h;
+                offX = (ZOOM - drawW) / 2 - ZOOM / 2;
+                offY = -ZOOM / 2;
+              } else {
+                drawW = ZOOM * w;
+                drawH = ZOOM * WALL_THICKNESS_MAP;
+                offX = -ZOOM / 2;
+                offY = (ZOOM - drawH) / 2 - ZOOM / 2;
+              }
+
+              ctx.fillRect(cx + offX, cy + offY, drawW, drawH);
+              ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+              ctx.lineWidth = 1;
+              ctx.strokeRect(cx + offX, cy + offY, drawW, drawH);
+            }
           } else if (
             def.type === 'floor' ||
             tileId === TILE_TYPES.DOOR_OPEN ||
@@ -168,7 +175,7 @@ export const Minimap: React.FC<MinimapProps> = ({
         }
       }
 
-      // --- ITEMS (only render when currently visible — no memory) ---
+      // --- ITEMS ---
       staticItems.forEach((item) => {
         if (
           map[item.z][item.x] === 0 ||
@@ -179,7 +186,7 @@ export const Minimap: React.FC<MinimapProps> = ({
 
         const dist = Math.sqrt((item.x - px) ** 2 + (item.z - pz) ** 2);
         if (dist > VIEW_RADIUS) return;
-        if (!hasLineOfSight(px, pz, item.x, item.z, map)) return;
+        if (!hasLineOfSight(px, pz, item.x, item.z, map, footprint)) return;
 
         const { x: cx, y: cy } = toCanvas(item.x, item.z);
         ctx.fillStyle = item.color;
@@ -198,7 +205,7 @@ export const Minimap: React.FC<MinimapProps> = ({
         ctx.shadowBlur = 0;
       });
 
-      // --- ENEMIES (always live, never from memory) ---
+      // --- ENEMIES ---
       if (enemyTracker.current) {
         const pulse = 0.65 + 0.35 * Math.sin(t / 350);
 
@@ -216,7 +223,7 @@ export const Minimap: React.FC<MinimapProps> = ({
           while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
           const inCone = Math.abs(angleDiff) < FLASHLIGHT_FOV / 2;
 
-          if (dist < 1.5 || (inCone && hasLineOfSight(px, pz, ex, ez, map))) {
+          if (dist < 1.5 || (inCone && hasLineOfSight(px, pz, ex, ez, map, footprint))) {
             const { x: cx, y: cy } = toCanvas(ex, ez);
             ctx.fillStyle = COLORS.enemy;
             ctx.globalAlpha = pulse;
@@ -292,7 +299,7 @@ export const Minimap: React.FC<MinimapProps> = ({
 
     renderLoop();
     return () => cancelAnimationFrame(animationFrameId);
-  }, [map, playerPos, playerRotation, enemyTracker, staticItems, FLASHLIGHT_FOV]);
+  }, [map, playerPos, playerRotation, enemyTracker, staticItems, FLASHLIGHT_FOV, footprint]);
 
   const labelStyle: React.CSSProperties = {
     position: 'absolute',

@@ -7,7 +7,7 @@ export const SHEET_CONFIG = {
 export interface TileDef {
   id: number;
   name: string;
-  type: 'floor' | 'wall' | 'prop' | 'item' | 'door';
+  type: 'floor' | 'wall' | 'prop' | 'item' | 'door' | 'event';
   atlasPos: { col: number; row: number };
   size: { w: number; h: number }; // Size in "tiles"
   footprint?: { w: number; h: number };
@@ -15,6 +15,8 @@ export interface TileDef {
   solid?: boolean;
   itemId?: string;
   placement?: 'modular' | 'structure';
+  modelPath?: string; // For 3D props
+  scale?: number; // For 3D props
 }
 
 export const TILE_IDS = {
@@ -42,6 +44,25 @@ export const TILE_IDS = {
   BONFIRE: 9,
   SIGN: 45,
 
+  // --- 3D PROPS (300+) ---
+  PROP_FIREPLACE: 300,
+  PROP_STOOL: 301,
+  PROP_BAG: 302,
+  PROP_BUCKET: 303,
+  PROP_BASIN: 304,
+  PROP_CART: 305,
+  PROP_CUT_WOOD: 306,
+  PROP_DRIED_FISH: 307,
+  PROP_GRINDER: 308,
+  PROP_TARGET: 309,
+  PROP_MANNEQUIN: 310,
+  PROP_SKIN_HANG: 311,
+  PROP_TROUGH: 312,
+  PROP_BROOM: 313,
+  PROP_PITCHFORK: 314,
+  PROP_WHEEL: 315,
+  PROP_BOAT_FRAME: 316,
+
   // --- FLOORS ---
   STONE_FLOOR_1: 10,
   COBBLESTONE_1: 11,
@@ -67,7 +88,12 @@ export const TILE_IDS = {
   ARCH_DARK: 52,
   WALL_BARS: 54,
   WALL_PILLAR_1: 60,
+
+  TRIGGER_BOSS_CHASE: 90,
+  TRIGGER_BOULDER_COLLAPSE: 91,
 } as const;
+
+const PROP_DIR = '/sprites/props/3D Props/Small Props Pack/gLTF/Props';
 
 export const TILE_REGISTRY: Record<number, TileDef> = {
   // --- SPECIAL / DEFAULTS ---
@@ -374,6 +400,193 @@ export const TILE_REGISTRY: Record<number, TileDef> = {
     id: TILE_IDS.SIGN,
     name: 'sign',
     type: 'prop',
+    atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: false,
+  },
+  // --- 3D PROPS REGISTRATION ---
+  [TILE_IDS.PROP_FIREPLACE]: {
+    id: TILE_IDS.PROP_FIREPLACE,
+    name: 'fireplace',
+    type: 'prop',
+    atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: true,
+    modelPath: `${PROP_DIR}/FirePlace_1_1_A.glb`,
+    scale: 0.5,
+  },
+  [TILE_IDS.PROP_STOOL]: {
+    id: TILE_IDS.PROP_STOOL,
+    name: 'stool',
+    type: 'prop',
+    atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: true,
+    modelPath: `${PROP_DIR}/Stool_A.glb`,
+    scale: 0.5,
+  },
+  [TILE_IDS.PROP_BAG]: {
+    id: TILE_IDS.PROP_BAG,
+    name: 'bag',
+    type: 'prop',
+    atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: false,
+    modelPath: `${PROP_DIR}/Bag_1_A.glb`,
+    scale: 0.5,
+  },
+  [TILE_IDS.PROP_BUCKET]: {
+    id: TILE_IDS.PROP_BUCKET,
+    name: 'bucket',
+    type: 'prop',
+    atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: true,
+    modelPath: `${PROP_DIR}/Bucket_1_A.glb`,
+    scale: 0.5,
+  },
+  [TILE_IDS.PROP_BASIN]: {
+    id: TILE_IDS.PROP_BASIN,
+    name: 'basin',
+    type: 'prop',
+    atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: true,
+    modelPath: `${PROP_DIR}/Basin_A.glb`,
+    scale: 0.5,
+  },
+  [TILE_IDS.PROP_CART]: {
+    id: TILE_IDS.PROP_CART,
+    name: 'cart',
+    type: 'prop',
+    atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: true,
+    modelPath: `${PROP_DIR}/Cart_1_A.glb`,
+    scale: 0.5,
+  },
+  [TILE_IDS.PROP_CUT_WOOD]: {
+    id: TILE_IDS.PROP_CUT_WOOD,
+    name: 'cut_wood',
+    type: 'prop',
+    atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: false,
+    modelPath: `${PROP_DIR}/CutedWood_1_A.glb`,
+    scale: 0.5,
+  },
+  [TILE_IDS.PROP_DRIED_FISH]: {
+    id: TILE_IDS.PROP_DRIED_FISH,
+    name: 'dried_fish',
+    type: 'prop',
+    atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: false,
+    modelPath: `${PROP_DIR}/DriedFish_1_A.glb`,
+    scale: 0.5,
+  },
+  [TILE_IDS.PROP_GRINDER]: {
+    id: TILE_IDS.PROP_GRINDER,
+    name: 'grinder',
+    type: 'prop',
+    atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: true,
+    modelPath: `${PROP_DIR}/Grinder_A.glb`,
+    scale: 0.5,
+  },
+  [TILE_IDS.PROP_TARGET]: {
+    id: TILE_IDS.PROP_TARGET,
+    name: 'practice_target',
+    type: 'prop',
+    atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: true,
+    modelPath: `${PROP_DIR}/PracticeTarget_1_A.glb`,
+    scale: 0.5,
+  },
+  [TILE_IDS.PROP_MANNEQUIN]: {
+    id: TILE_IDS.PROP_MANNEQUIN,
+    name: 'mannequin',
+    type: 'prop',
+    atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: true,
+    modelPath: `${PROP_DIR}/Manequin_1_A.glb`,
+    scale: 0.5,
+  },
+  [TILE_IDS.PROP_SKIN_HANG]: {
+    id: TILE_IDS.PROP_SKIN_HANG,
+    name: 'skin_hang',
+    type: 'prop',
+    atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: true,
+    modelPath: `${PROP_DIR}/SkinHang_A.glb`,
+    scale: 0.5,
+  },
+  [TILE_IDS.PROP_TROUGH]: {
+    id: TILE_IDS.PROP_TROUGH,
+    name: 'trough',
+    type: 'prop',
+    atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: true,
+    modelPath: `${PROP_DIR}/Trough_1_A.glb`,
+    scale: 0.5,
+  },
+  [TILE_IDS.PROP_BROOM]: {
+    id: TILE_IDS.PROP_BROOM,
+    name: 'broom',
+    type: 'prop',
+    atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: false,
+    modelPath: `${PROP_DIR}/Broom_A.glb`,
+    scale: 0.5,
+  },
+  [TILE_IDS.PROP_PITCHFORK]: {
+    id: TILE_IDS.PROP_PITCHFORK,
+    name: 'pitchfork',
+    type: 'prop',
+    atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: false,
+    modelPath: `${PROP_DIR}/Pitchfork_A.glb`,
+    scale: 0.5,
+  },
+  [TILE_IDS.PROP_WHEEL]: {
+    id: TILE_IDS.PROP_WHEEL,
+    name: 'wheel',
+    type: 'prop',
+    atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: false,
+    modelPath: `${PROP_DIR}/Wheel_A.glb`,
+    scale: 0.5,
+  },
+  [TILE_IDS.PROP_BOAT_FRAME]: {
+    id: TILE_IDS.PROP_BOAT_FRAME,
+    name: 'boat_frame',
+    type: 'prop',
+    atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: true,
+    modelPath: `${PROP_DIR}/BoatFrame_A.glb`,
+    scale: 0.5,
+  },
+  [TILE_IDS.TRIGGER_BOSS_CHASE]: {
+    id: TILE_IDS.TRIGGER_BOSS_CHASE,
+    name: 'trigger_boss_chase',
+    type: 'event',
+    atlasPos: { col: 0, row: 0 },
+    size: { w: 1, h: 1 },
+    solid: false,
+  },
+  [TILE_IDS.TRIGGER_BOULDER_COLLAPSE]: {
+    id: TILE_IDS.TRIGGER_BOULDER_COLLAPSE,
+    name: 'trigger_boulder_collapse',
+    type: 'event',
     atlasPos: { col: 0, row: 0 },
     size: { w: 1, h: 1 },
     solid: false,

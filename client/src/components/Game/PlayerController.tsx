@@ -48,7 +48,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
     if (groupRef.current && playerRef.current) {
       groupRef.current.position.copy(playerRef.current);
     }
-  }, [playerRef]);
+  }, [playerRef, map]);
 
   const prevInteract = useRef(false);
   const stepAudioTimer = useRef(0);

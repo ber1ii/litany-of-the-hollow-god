@@ -18,9 +18,8 @@ import { LootDrop } from './LootDrop';
 import { ITEM_REGISTRY } from '../../data/ItemRegistry';
 import type { MonsterType } from '../../types/GameTypes';
 import { ENEMIES } from '../../data/Enemies';
-import { generateCollisionGrid } from './MapData';
-
-// --- STATIC HELPERS ---
+import { buildStructureFootprint, getEffectiveTileId } from '../../utils/StructureFootprint';
+import { Prop3D } from './Prop3D';
 
 const ENEMY_TILE_CONFIG: Record<number, { type: MonsterType; prefix: string }> = {
   [TILE_TYPES.SKELETON]: { type: 'skeleton', prefix: 'skeleton' },
@@ -93,7 +92,6 @@ const createSmartGeometry = (
   const xOffset = (stretchRight - stretchLeft) / 2;
   geometry.translate(xOffset, height / 2, 0);
 
-  // Index Manipulation for Culling
   const indexAttribute = geometry.getIndex();
   if (indexAttribute) {
     const oldIndices = indexAttribute.array;
@@ -110,14 +108,10 @@ const createSmartGeometry = (
     }
     geometry.setIndex(newIndices);
 
-    // Force all modular wall faces to use Material Group 0
-    // This prevents standard BoxGeometry groups from applying the black fill
-    // material to the sides of modular walls.
     geometry.clearGroups();
     geometry.addGroup(0, newIndices.length, 0);
   }
 
-  // UV Mapping
   const uvs = geometry.attributes.uv;
   const texW = SHEET_CONFIG.width;
   const texH = SHEET_CONFIG.height;
@@ -163,7 +157,6 @@ const StaticLevel = React.memo(
       [map]
     );
 
-    // 1. WALLS
     const wallMeshes = useMemo(() => {
       const groups = getWallGroups(map);
       return groups.map((group, index) => {
@@ -262,7 +255,6 @@ const StaticLevel = React.memo(
       });
     }, [map, texture, playerPos, mapWidth, mapHeight, getOrientation]);
 
-    // 2. CORNERS
     const cornerMeshes = useMemo(() => {
       const corners = [
         { x: 0, z: 0 },
@@ -357,19 +349,34 @@ export const LevelBuilder: React.FC<LevelBuilderProps> = ({
     return t;
   }, [rawAtlas]);
 
-  const collisionGrid = useMemo(() => generateCollisionGrid(map), [map]);
+  const collisionGrid = useMemo(() => {
+    const footprint = buildStructureFootprint(map);
+    return map.map((row, z) =>
+      row.map((_, x) => {
+        const id = getEffectiveTileId(map, footprint, x, z);
+        if (id === 0) return false;
+        const def = getTileDef(id);
+
+        // Exclude floor structures from collision
+        const isSolidWall =
+          def.type === 'wall' ||
+          (def.type === 'prop' && def.solid === true) ||
+          (def.placement === 'structure' && def.type !== 'floor' && def.solid !== false);
+
+        return isSolidWall || id === TILE_TYPES.DOOR_CLOSED || id === TILE_TYPES.DOOR_LOCKED_SILVER;
+      })
+    );
+  }, [map]);
 
   const getOrientation = useCallback(
     (tx: number, tz: number) => getWallOrientation(map, tx, tz),
     [map]
   );
 
-  // --- 3. DYNAMIC ITEMS ---
   const items = useMemo(() => {
     const list: React.ReactElement[] = [];
     map.forEach((row, z) => {
       row.forEach((tile, x) => {
-        // --- 1. DOORS ---
         if (isDoor(tile)) {
           const isLocked = tile === TILE_TYPES.DOOR_LOCKED_SILVER;
           let rotationY = 0;
@@ -387,7 +394,6 @@ export const LevelBuilder: React.FC<LevelBuilderProps> = ({
           );
         }
 
-        // --- 2. SPECIAL ITEMS (GOLD) ---
         if (tile === TILE_TYPES.GOLD) {
           list.push(
             <group key={`gold-${x}-${z}`} position={[0, 0.01, 0]}>
@@ -396,11 +402,23 @@ export const LevelBuilder: React.FC<LevelBuilderProps> = ({
           );
         }
 
-        // --- 3. ENEMIES ---
+        // Restored structural items
+        if (tile === TILE_TYPES.TORCH_WALL) {
+          list.push(<Torch key={`torch-${x}-${z}`} x={x} z={z} />);
+        }
+        if (tile === TILE_TYPES.CANDLE) {
+          list.push(<Candle key={`candle-${x}-${z}`} x={x} z={z} />);
+        }
+        if (tile === TILE_TYPES.BONFIRE) {
+          list.push(<Bonfire key={`bonfire-${x}-${z}`} x={x} z={z} />);
+        }
+        if (tile === TILE_TYPES.SIGN) {
+          list.push(<Sign key={`sign-${x}-${z}`} x={x} z={z} playerPos={playerPos} />);
+        }
+
         const enemyConfig = ENEMY_TILE_CONFIG[tile];
         if (enemyConfig) {
           const enemyKey = `${enemyConfig.prefix}-${x}-${z}`;
-
           const baseEnemyDef = ENEMIES[enemyConfig.type.toUpperCase()];
 
           if (!deadEnemyIds.has(enemyKey)) {
@@ -424,22 +442,20 @@ export const LevelBuilder: React.FC<LevelBuilderProps> = ({
           }
         }
 
-        // --- 4. PROPS ---
-        if (tile === TILE_TYPES.TORCH_WALL) {
-          list.push(<Torch key={`torch-${x}-${z}`} x={x} z={z} />);
-        }
-        if (tile === TILE_TYPES.CANDLE) {
-          list.push(<Candle key={`candle-${x}-${z}`} x={x} z={z} />);
-        }
-        if (tile === TILE_TYPES.BONFIRE) {
-          list.push(<Bonfire key={`bonfire-${x}-${z}`} x={x} z={z} />);
-        }
-        if (tile === TILE_TYPES.SIGN) {
-          list.push(<Sign key={`sign-${x}-${z}`} x={x} z={z} />);
+        const tileDef = getTileDef(tile);
+
+        if (tileDef.type === 'prop' && tileDef.modelPath) {
+          list.push(
+            <Prop3D
+              key={`prop-${tileDef.name}-${x}-${z}`}
+              modelPath={tileDef.modelPath}
+              gridX={x}
+              gridZ={z}
+              scale={tileDef.scale ?? 0.5}
+            />
+          );
         }
 
-        // --- 5. GENERIC ITEMS (REGISTRY) ---
-        const tileDef = getTileDef(tile);
         if (tileDef.type === 'item' && tileDef.itemId) {
           const itemData = ITEM_REGISTRY[tileDef.itemId];
           if (itemData) {

@@ -5,7 +5,7 @@ export const ENEMIES: Record<string, EnemyDef & { defaultBehavior?: MonsterBehav
   SKELETON: {
     id: 'SKELETON',
     name: 'Human Structure (Failed)',
-    defaultBehavior: { type: 'patrol', axis: 'x', range: 2 },
+    defaultBehavior: { type: 'static', facing: 'N' },
     hasMask: true,
     tier: 'common',
     aiBehavior: 'aggressive',

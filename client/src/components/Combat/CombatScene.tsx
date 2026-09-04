@@ -48,15 +48,10 @@ interface ActiveProjectile {
 }
 
 // --- Combat Audio Helpers ---
-// Skeletons are "bone" enemies (different hit/sever timbre), everything else
-// currently in the roster is "flesh" (orcs, vampires).
 const BONE_ENEMIES = new Set(['SKELETON']);
 const isBoneEnemy = (defId: string) => BONE_ENEMIES.has(defId);
 const VAMPIRE_ENEMIES = new Set(['VAMPIRE1', 'VAMPIRE_BOSS']);
 
-// Windup sound per enemy attack id. Attacks with no dedicated sfx yet
-// (e.g. skeleton's flail_swing/heavy_cleave) are intentionally omitted —
-// add sounds for them to AudioManager's variations map and list them here.
 const ENEMY_ATTACK_SOUNDS: Record<string, { sound: string; volume?: number }> = {
   cursed_bolt: { sound: 'skeleton-cursed-bolt' },
   flail_swing: { sound: 'skeleton_light_attack' },
@@ -178,8 +173,6 @@ export const CombatScene: React.FC<CombatSceneProps> = ({
     };
   }, []);
 
-  // Combat music/ambience: starts when the scene mounts, stops on the way out
-  // (defeat, victory, or fleeing all unmount CombatScene from the parent).
   useEffect(() => {
     AudioManager.updateListenerPosition([0, 0, 0], [0, 0, -1]);
     AudioManager.playBGM('combat-ost', 1.2);
@@ -339,7 +332,6 @@ export const CombatScene: React.FC<CombatSceneProps> = ({
           AudioManager.play('blood-orb', { category: 'sfx' });
         }
 
-        // Shared handler for skill execution results
         const applySkillResult = () => {
           const pStats = { ...playerStats };
           const eStats = { ...enemyInstance };
@@ -440,7 +432,6 @@ export const CombatScene: React.FC<CombatSceneProps> = ({
           setRequestedAction(null);
         };
 
-        // If skill throws a projectile (e.g. Weakening Dagger Throw)
         if (skillId === 'weakening_dagger_throw') {
           const projId = `player_proj_${Date.now()}`;
           const newProj: ActiveProjectile = {
@@ -454,13 +445,11 @@ export const CombatScene: React.FC<CombatSceneProps> = ({
             },
           };
 
-          // Delay launch slightly to synchronize with player wind-up
           setTimeout(() => {
             AudioManager.play('weakening-dagger-throw', { category: 'sfx' });
             setProjectiles((prev) => [...prev, newProj]);
           }, 150);
         } else {
-          // Direct physical/utility skill execution
           setTimeout(applySkillResult, 500);
         }
       } else {
@@ -555,7 +544,25 @@ export const CombatScene: React.FC<CombatSceneProps> = ({
       setTurnState('enemy_acting');
 
       const mainTimer = setTimeout(() => {
-        const enemyDef = ENEMIES[enemyInstance.instanceId.split('-')[0].toUpperCase()];
+        const baseId = enemyInstance.instanceId.split('-')[0].toUpperCase();
+        const enemyDef = ENEMIES[baseId];
+
+        // Check if Orc 2 has lost all arm parts
+        const isOrc2 = baseId === 'ORC2' || enemyInstance.defId?.toUpperCase() === 'ORC2';
+        const armParts = enemyInstance.parts.filter((p) => p.id.toLowerCase().includes('arm'));
+        const hasNoArms = armParts.length > 0 && armParts.every((p) => p.isSevered);
+
+        if (isOrc2 && hasNoArms) {
+          setEnemyAction('hurt');
+          spawnText(
+            'Flails around!',
+            [enemyPosition[0], enemyPosition[1] + 2.5, enemyPosition[2]],
+            '#fbbf24'
+          );
+          pushActionLog('enemy', `${enemyInstance.name} flails around defenselessly!`);
+          return;
+        }
+
         let availableAttacks = enemyDef?.attacks || [];
 
         availableAttacks = availableAttacks.filter((atk) => {
@@ -732,16 +739,13 @@ export const CombatScene: React.FC<CombatSceneProps> = ({
     }
   }, [turnState, popups.length, originalCamPos]);
 
-  // Low-HP cough: a chance to play on each of the player's turns while critically low
   useEffect(() => {
     if (turnState !== 'player_turn' || !playerStats) return;
     const hpRatio = playerStats.hp / playerStats.maxHp;
     if (hpRatio > 0 && hpRatio < 0.25 && Math.random() < 0.4) {
       AudioManager.play('low_hp_cough', { category: 'sfx' });
     }
-    // Only re-check when a fresh player turn starts, not on every hp tick within it
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [turnState]);
+  }, [turnState, playerStats]);
 
   useFrame((state) => {
     state.camera.position.lerp(cameraTargetPos.current, 0.15);

@@ -1,7 +1,6 @@
 import { TILE_TYPES } from '../components/Game/MapData';
 import { getTileDef } from '../data/TileRegistry';
-
-// --- HELPERS ---
+import { getEffectiveTileId, type FootprintGrid } from './StructureFootprint';
 
 const isStructure = (v: number) => {
   if (
@@ -35,7 +34,6 @@ export const getWallOrientation = (
   if (tx < 0 || tx >= w || tz < 0 || tz >= h) return 'none';
   const tileId = map[tz][tx];
 
-  // If it's not a structure, it has no orientation
   if (!isStructure(tileId)) return 'none';
 
   const valNorth = tz > 0 ? map[tz - 1][tx] : 0;
@@ -43,14 +41,9 @@ export const getWallOrientation = (
   const valWest = tx > 0 ? map[tz][tx - 1] : 0;
   const valEast = tx < w - 1 ? map[tz][tx + 1] : 0;
 
-  // 1. Surrounded Vertical
   if (isStructure(valNorth) && isStructure(valSouth)) return 'vertical';
-
-  // 2. Surrounded Horizontal
   if (isStructure(valWest) && isStructure(valEast)) return 'horizontal';
 
-  // 3. Dangling / End pieces
-  // If we have a neighbor North/South but NOT West/East -> Vertical
   if (
     (isStructure(valNorth) || isStructure(valSouth)) &&
     !isStructure(valWest) &&
@@ -59,18 +52,16 @@ export const getWallOrientation = (
     return 'vertical';
   }
 
-  // Default to Horizontal for everything else (including corners, which will overlap nicely)
   return 'horizontal';
 };
-
-// --- RAYCASTING ---
 
 export const hasLineOfSight = (
   x0: number,
   y0: number,
   x1: number,
   y1: number,
-  map: number[][]
+  map: number[][],
+  footprint: FootprintGrid
 ): boolean => {
   let x = Math.floor(x0);
   let y = Math.floor(y0);
@@ -85,15 +76,20 @@ export const hasLineOfSight = (
 
   while (true) {
     if (y >= 0 && y < map.length && x >= 0 && x < map[0].length) {
-      const tileId = map[y][x];
+      const tileId = getEffectiveTileId(map, footprint, x, y);
       const def = getTileDef(tileId);
 
       const isTarget = x === endX && y === endY;
       const isStart = x === Math.floor(x0) && y === Math.floor(y0);
 
       if (!isStart && !isTarget) {
-        if (
+        // Only block line of sight if the tile is explicitly a wall or solid obstacle
+        const isSolidWall =
           def.type === 'wall' ||
+          (def.placement === 'structure' && def.type !== 'floor' && def.solid !== false);
+
+        if (
+          isSolidWall ||
           tileId === TILE_TYPES.DOOR_CLOSED ||
           tileId === TILE_TYPES.DOOR_LOCKED_SILVER
         ) {

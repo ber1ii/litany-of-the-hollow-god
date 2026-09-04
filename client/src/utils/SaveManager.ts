@@ -5,7 +5,8 @@ import { CLASSES } from '../data/Classes';
 import { INITIAL_LEVEL_ID } from '../data/LevelRegistry';
 import type { PlayerStats } from '../types/GameTypes';
 import type { ClassId } from '../data/Classes';
-import { PLAYER_SPAWN, TILE_SIZE } from '../components/Game/MapData';
+import { LEVEL_1_ASCII, TILE_SIZE } from '../components/Game/MapData';
+import { getSpawnPosition } from './MapParser';
 
 export interface SaveData {
   stats: PlayerStats;
@@ -32,7 +33,6 @@ export const SaveManager = {
       classId: classId,
       unlockedSkills: classDef.startingSkills,
       equippedSkills: classDef.startingSkills,
-      // Ensure Vitals match Max if not explicitly set
       hp: classDef.baseStats.maxHp || INITIAL_STATS.maxHp,
       mp: classDef.baseStats.maxMp || INITIAL_STATS.maxMp,
     };
@@ -41,20 +41,22 @@ export const SaveManager = {
     const inventory: InventoryItem[] = classDef.startingItems
       .map((startItem) => {
         const def = ITEM_REGISTRY[startItem.id];
-        // Fallback if item missing in registry
         if (!def) console.warn(`Missing item registry for ${startItem.id}`);
         return {
           ...def,
           count: startItem.count,
         } as InventoryItem;
       })
-      .filter((i) => i.id); // Filter out undefineds
+      .filter((i) => i.id);
+
+    // Calculate the properly centered world position
+    const spawnPos = getSpawnPosition(LEVEL_1_ASCII, TILE_SIZE);
 
     return {
       stats,
       inventory,
       currentLevelId: INITIAL_LEVEL_ID,
-      playerPos: { x: PLAYER_SPAWN.x * TILE_SIZE, y: 0, z: PLAYER_SPAWN.z * TILE_SIZE },
+      playerPos: { x: spawnPos.x, y: spawnPos.y, z: spawnPos.z },
       playerRotation: 0,
       deadEnemyIds: [],
       levelChanges: {},

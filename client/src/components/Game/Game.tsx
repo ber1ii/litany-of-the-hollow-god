@@ -4,7 +4,7 @@ import { AtlasFloor } from './AtlasFloor';
 import { PlayerController } from './PlayerController';
 import * as THREE from 'three';
 import { LevelBuilder } from './LevelBuilder';
-import { TILE_TYPES, TILE_SIZE, PLAYER_SPAWN, LEVEL_2_SPAWN } from './MapData';
+import { TILE_TYPES, TILE_SIZE, LEVEL_1_ASCII, LEVEL_2_ASCII } from './MapData';
 import { CombatScene } from '../Combat/CombatScene';
 import { CombatHud } from '../Combat/CombatHud';
 import type { InventoryItem } from '../../types/GameTypes';
@@ -28,6 +28,7 @@ import { AudioManager } from '../../managers/AudioManager';
 import { InteractPrompt } from './InteractPrompt';
 import { getSignData, type SignEntry } from '../../data/SignData';
 import { SignDialog } from './SignDialog';
+import { getSpawnPosition } from '../../utils/MapParser';
 
 const FOG_COLOR = '#040408';
 
@@ -55,6 +56,19 @@ interface GameProps {
   onExit: () => void;
   initialSaveData?: SaveData | null;
 }
+
+const ASCII_MAPS: Record<string, string[]> = {
+  LEVEL_1: LEVEL_1_ASCII,
+  LEVEL_2: LEVEL_2_ASCII,
+};
+
+const getInitialSpawnForLevel = (levelId: string) => {
+  // Dynamically pull the correct ASCII map based on the ID, fallback to Level 1
+  const asciiMap = ASCII_MAPS[levelId] || LEVEL_1_ASCII;
+
+  // This correctly applies centering offsets and world coordinates for all levels
+  return getSpawnPosition(asciiMap, TILE_SIZE);
+};
 
 export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
   // Store Subscriptions
@@ -126,7 +140,7 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
           initialSaveData.playerPos.y,
           initialSaveData.playerPos.z
         )
-      : new THREE.Vector3(PLAYER_SPAWN.x * TILE_SIZE, 0, PLAYER_SPAWN.z * TILE_SIZE)
+      : getInitialSpawnForLevel(INITIAL_LEVEL_ID)
   );
 
   const playerRotationRef = useRef(initialSaveData ? initialSaveData.playerRotation : 0);
@@ -341,7 +355,9 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
       playerPosRef.current.set(store.lastRestedPos.x, store.lastRestedPos.y, store.lastRestedPos.z);
       playerRotationRef.current = store.lastRestedRot;
     } else {
-      playerPosRef.current.set(PLAYER_SPAWN.x * TILE_SIZE, 0, PLAYER_SPAWN.z * TILE_SIZE);
+      // Dynamically grab the spawn for whatever map the player died on
+      const spawnPoint = getInitialSpawnForLevel(currentLevelId);
+      playerPosRef.current.copy(spawnPoint);
       playerRotationRef.current = 0;
     }
 
@@ -383,11 +399,15 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
       if (nextMap) {
         setMapData(nextMap.map((row) => [...row]));
         setCurrentLevelId(nextLevelId);
+
+        // Utilize our newly uniform spawn function instead of hardcoding
+        const spawnPos = getInitialSpawnForLevel(nextLevelId);
+        playerPosRef.current.copy(spawnPos);
+
         setDeadEnemyIds(new Set());
         enemyTracker.current.clear();
         chasingEnemyIds.current.clear();
         setIsPlayerChased(false);
-        playerPosRef.current.set(LEVEL_2_SPAWN.x * TILE_SIZE, 0, LEVEL_2_SPAWN.z * TILE_SIZE);
         playerRotationRef.current = 0;
         addNotification('Entering the beginner area...');
       }
@@ -602,6 +622,7 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
               enemiesActive={!isBonfireMenuOpen && !isSkillTreeOpen && !isLevelUpOpen}
             />
             <PlayerController
+              key={currentLevelId}
               map={mapData}
               onInteract={handleInteract}
               onInteractableChange={setCanInteract}

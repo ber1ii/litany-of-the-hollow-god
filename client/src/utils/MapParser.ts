@@ -1,4 +1,5 @@
 import { TILE_IDS, STRUCTURE_IDS } from '../data/TileRegistry';
+import * as THREE from 'three';
 
 // Wrap the legend in a function
 export const getMapLegend = (): Record<string, number> => ({
@@ -33,6 +34,7 @@ export const getMapLegend = (): Record<string, number> => ({
   '3': TILE_IDS.COBBLESTONE_2,
   '4': TILE_IDS.COBBLESTONE_3,
   '5': TILE_IDS.DIRT_PATCH_1,
+  c: TILE_IDS.COBBLESTONE_5,
   '6': STRUCTURE_IDS['STONE_FLOOR2_A'] || 0,
   '7': STRUCTURE_IDS['COBBLESTONE_FLOOR2_A'] || 0,
   '8': STRUCTURE_IDS['STONE_FLOOR3_A'] || 0,
@@ -54,17 +56,59 @@ export const getMapLegend = (): Record<string, number> => ({
   v: TILE_IDS.VAMPIRE1,
   V: TILE_IDS.VAMPIRE_BOSS,
   Y: TILE_IDS.SIGN,
+  '!': TILE_IDS.TRIGGER_BOSS_CHASE, // Boss appearance trigger
+  '*': TILE_IDS.TRIGGER_BOULDER_COLLAPSE, // Boulder drop + screen shake trigger
+  F: TILE_IDS.PROP_FIREPLACE,
+  '?': TILE_IDS.PROP_STOOL,
+  '>': TILE_IDS.PROP_BAG,
+  u: TILE_IDS.PROP_BUCKET,
+  b: TILE_IDS.PROP_BASIN,
+  t: TILE_IDS.PROP_CART,
+  z: TILE_IDS.PROP_CUT_WOOD,
+  f: TILE_IDS.PROP_DRIED_FISH,
+  e: TILE_IDS.PROP_GRINDER,
+  K: TILE_IDS.PROP_TARGET,
+  Q: TILE_IDS.PROP_MANNEQUIN,
+  S: TILE_IDS.PROP_SKIN_HANG,
+  r: TILE_IDS.PROP_TROUGH,
+  j: TILE_IDS.PROP_BROOM,
+  y: TILE_IDS.PROP_PITCHFORK,
+  '`': TILE_IDS.PROP_WHEEL,
+  N: TILE_IDS.PROP_BOAT_FRAME,
+  ':': TILE_IDS.POTION_RED,
+  ';': TILE_IDS.POTION_BLUE,
+  ',': TILE_IDS.STONE_FLOOR_2,
+  '/': TILE_IDS.COBBLESTONE_4,
+  '<': STRUCTURE_IDS['GRATE_SMALLER'] || 0,
+  '\\': STRUCTURE_IDS['GRATE_SMALLER_ACID'] || 0,
+  '~': STRUCTURE_IDS['STONE_STRIP'] || 0,
+  J: STRUCTURE_IDS['WALL_PILLAR_2'] || 0,
+  Z: STRUCTURE_IDS['PILLAR_2'] || 0,
+  l: STRUCTURE_IDS['PILLAR_3'] || 0,
+  n: STRUCTURE_IDS['WALL_DIRTY'] || 0,
+  '0': STRUCTURE_IDS['WALL_VERY_LONG'] || 0,
+  '^': STRUCTURE_IDS['WALL_BASIC_2'] || 0,
+  '%': STRUCTURE_IDS['WALL_BASIC_3'] || 0,
+  '&': STRUCTURE_IDS['WALL_BASIC_4'] || 0,
+  a: STRUCTURE_IDS['PILLAR_THIN_SHORT'] || 0,
+  '(': STRUCTURE_IDS['STONE_CIRCLE_LEFT'] || 0,
+  ')': STRUCTURE_IDS['STONE_CIRCLE_RIGHT'] || 0,
+  '+': STRUCTURE_IDS['OVAL_HALF_DOWN'] || 0,
+  '{': STRUCTURE_IDS['COBBLESTONE_6'] || 0,
+  '}': STRUCTURE_IDS['DIRT_PATCH_FLOOR2'] || 0,
+  '"': STRUCTURE_IDS['DIRT_PATCH_FLOOR3'] || 0,
 });
 
-export const getSpawnPosition = (asciiMap: string[]): { x: number; z: number } => {
+export const getSpawnPosition = (asciiMap: string[], tileSize: number = 0.5): THREE.Vector3 => {
   for (let z = 0; z < asciiMap.length; z++) {
     for (let x = 0; x < asciiMap[z].length; x++) {
       if (asciiMap[z][x] === '@') {
-        return { x, z };
+        // Multiply by tileSize with a +0.5 offset to center the spawn within the grid tile
+        return new THREE.Vector3((x + 0.5) * tileSize, 0, (z + 0.5) * tileSize);
       }
     }
   }
-  return { x: 1, z: 1 };
+  return new THREE.Vector3(0, 0, 0); // Fallback spawn
 };
 
 export const parseAsciiMap = (asciiMap: string[]): number[][] => {
