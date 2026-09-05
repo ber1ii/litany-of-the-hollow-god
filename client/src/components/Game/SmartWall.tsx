@@ -1,96 +1,113 @@
-import React, { useMemo } from 'react';
+import React, { useRef, useEffect } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { SmartWallShader } from '../Materials/SmartFadeMaterial';
 
-interface SmartWallProps {
-  geometry: THREE.BufferGeometry;
-  texture: THREE.Texture;
-  playerPos: React.RefObject<THREE.Vector3>;
-  wallType: 'rigid' | 'fadable';
-  position: [number, number, number];
-  rotation: [number, number, number];
-}
+const globalPlayerPosUniform = { value: new THREE.Vector3() };
 
-export const SmartWall: React.FC<SmartWallProps> = ({
-  geometry,
-  texture,
-  playerPos,
-  wallType,
-  position,
-  rotation,
-}) => {
-  const isVertical = Math.abs(rotation[1]) > 0.1;
+const createSharedMaterial = (isVertical: boolean, isFadable: boolean, texture: THREE.Texture) => {
+  const mat = new THREE.MeshStandardMaterial({
+    map: texture,
+    color: '#ffffff',
+    roughness: 0.8,
+    transparent: true,
+    depthWrite: true,
+  });
 
-  // 1. MAIN MATERIAL (Group 0 - Wall Sides)
-  const customMaterial = useMemo(() => {
-    const mat = new THREE.MeshStandardMaterial({
-      map: texture,
-      color: '#ffffff',
-      roughness: 0.8,
-      transparent: true,
-      depthWrite: true,
-    });
-
-    mat.onBeforeCompile = (shader) => {
-      SmartWallShader.onBeforeCompile(shader);
-
-      // Darker washed-out gray in linear space to keep flashlight from blowing it out
-      shader.fragmentShader = shader.fragmentShader.replace(
-        '#include <map_fragment>',
-        `
+  mat.onBeforeCompile = (shader) => {
+    SmartWallShader.onBeforeCompile(shader);
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <map_fragment>',
+      `
       #include <map_fragment>
       #ifdef USE_MAP
         diffuseColor.rgb = mix(vec3(0.025, 0.027, 0.030), diffuseColor.rgb, diffuseColor.a);
         diffuseColor.a = 1.0; 
       #endif
       `
-      );
+    );
+    shader.uniforms.uPlayerPos = globalPlayerPosUniform;
+    shader.uniforms.uWallType.value = isFadable ? 1.0 : 0.0;
+    shader.uniforms.uIsVertical.value = isVertical ? 1.0 : 0.0;
+  };
+  return mat;
+};
 
-      mat.userData.shader = shader;
-      shader.uniforms.uWallType.value = wallType === 'fadable' ? 1.0 : 0.0;
-      shader.uniforms.uIsVertical.value = isVertical ? 1.0 : 0.0;
-    };
+const materialCache = new Map<string, THREE.MeshStandardMaterial>();
 
-    return mat;
-  }, [texture, wallType, isVertical]);
+const getSharedWallMaterial = (isVertical: boolean, isFadable: boolean, texture: THREE.Texture) => {
+  const key = `${isVertical ? 'v' : 'h'}_${isFadable ? 'f' : 'r'}`;
+  if (!materialCache.has(key)) {
+    materialCache.set(key, createSharedMaterial(isVertical, isFadable, texture));
+  }
+  return materialCache.get(key)!;
+};
 
-  // 2. STRUCTURE FILL MATERIAL (Group 1 - Tops & Interiors)
-  const fillMaterial = useMemo(() => {
-    const mat = new THREE.MeshStandardMaterial({
-      color: '#222528', // Dark desaturated washed-out gray matching the GLSL void tone
-      roughness: 0.95,
-      transparent: true,
-      depthWrite: true,
-    });
-
-    mat.onBeforeCompile = (shader) => {
-      SmartWallShader.onBeforeCompile(shader);
-      mat.userData.shader = shader;
-
-      shader.uniforms.uWallType.value = wallType === 'fadable' ? 1.0 : 0.0;
-      shader.uniforms.uIsVertical.value = isVertical ? 1.0 : 0.0;
-    };
-
-    return mat;
-  }, [wallType, isVertical]);
-
+export const WallUniformDriver: React.FC<{ playerPos: React.RefObject<THREE.Vector3> }> = ({
+  playerPos,
+}) => {
   useFrame(() => {
-    if (playerPos.current) {
-      if (customMaterial.userData.shader) {
-        customMaterial.userData.shader.uniforms.uPlayerPos.value.copy(playerPos.current);
+    if (playerPos.current) globalPlayerPosUniform.value.copy(playerPos.current);
+  });
+  return null;
+};
+
+// --- NEW: INSTANCED MESH DATA STRUCTURES ---
+export interface InstancedGroupData {
+  geometry: THREE.BufferGeometry;
+  isVertical: boolean;
+  isFadable: boolean;
+  matrices: THREE.Matrix4[];
+}
+
+export const InstancedSmartWall: React.FC<{ data: InstancedGroupData; texture: THREE.Texture }> =
+  React.memo(({ data, texture }) => {
+    const meshRef = useRef<THREE.InstancedMesh>(null);
+    const material = getSharedWallMaterial(data.isVertical, data.isFadable, texture);
+
+    useEffect(() => {
+      if (meshRef.current) {
+        data.matrices.forEach((mat, i) => {
+          meshRef.current!.setMatrixAt(i, mat);
+        });
+        meshRef.current.instanceMatrix.needsUpdate = true;
       }
-      if (fillMaterial.userData.shader) {
-        fillMaterial.userData.shader.uniforms.uPlayerPos.value.copy(playerPos.current);
-      }
-    }
+    }, [data.matrices]);
+
+    return (
+      <instancedMesh
+        ref={meshRef}
+        args={[data.geometry, [material, material], data.matrices.length]}
+        castShadow
+        receiveShadow
+      />
+    );
   });
 
-  return (
-    <group position={position} rotation={rotation}>
-      <mesh geometry={geometry} material={[customMaterial, fillMaterial]} castShadow receiveShadow>
-        <meshDepthMaterial attach="customDepthMaterial" depthPacking={THREE.RGBADepthPacking} />
-      </mesh>
-    </group>
-  );
-};
+// Original preserved to prevent breaking other components
+interface SmartWallProps {
+  geometry: THREE.BufferGeometry;
+  texture: THREE.Texture;
+  wallType: 'rigid' | 'fadable';
+  position: [number, number, number];
+  rotation: [number, number, number];
+}
+
+export const SmartWall: React.FC<SmartWallProps> = React.memo(
+  ({ geometry, texture, wallType, position, rotation }) => {
+    const isVertical = Math.abs(rotation[1]) > 0.1;
+    const isFadable = wallType === 'fadable';
+    const material = getSharedWallMaterial(isVertical, isFadable, texture);
+
+    return (
+      <mesh
+        position={position}
+        rotation={rotation}
+        geometry={geometry}
+        material={[material, material]}
+        castShadow
+        receiveShadow
+      />
+    );
+  }
+);

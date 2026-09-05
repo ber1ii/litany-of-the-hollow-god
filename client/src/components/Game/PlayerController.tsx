@@ -18,6 +18,7 @@ import { buildStructureFootprint, getEffectiveTileId } from '../../utils/Structu
 import { SANITY_CONFIG } from '../../data/SanityConfig';
 import { usePlayerStore } from '../../hooks/usePlayerStore';
 import { AudioManager } from '../../managers/AudioManager';
+import { getChunkCoords } from '../../utils/ChunkUtils';
 
 interface PlayerControllerProps {
   map: number[][];
@@ -28,7 +29,33 @@ interface PlayerControllerProps {
   active?: boolean;
   isChased?: boolean;
   onInteractableChange?: (canInteract: boolean) => void;
+  isSwordless?: boolean;
+  targetFov?: number; // Optional prop to set the camera's field of view
+  extraObstacles?: { x: number; z: number; radius: number }[]; // e.g. the landed chase boulder
 }
+
+type Direction = 'N' | 'NE' | 'E' | 'SE' | 'S' | 'SW' | 'W' | 'NW';
+
+// Module-scope constant — never reallocated, shape never changes.
+// (Facing-direction candidate is handled separately in the frame loop
+// since it changes every frame; these four are the fixed cardinal checks.)
+const NEIGHBOR_DIRS: { x: number; z: number }[] = [
+  { x: 1, z: 0 },
+  { x: -1, z: 0 },
+  { x: 0, z: 1 },
+  { x: 0, z: -1 },
+];
+
+const isStructureTile = (v: number) => {
+  const d = getTileDef(v);
+  return (
+    d &&
+    (d.type === 'wall' ||
+      v === TILE_TYPES.DOOR_CLOSED ||
+      v === TILE_TYPES.DOOR_OPEN ||
+      v === TILE_TYPES.DOOR_LOCKED_SILVER)
+  );
+};
 
 export const PlayerController: React.FC<PlayerControllerProps> = ({
   map,
@@ -39,10 +66,22 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
   active = true,
   isChased = false,
   onInteractableChange,
+  isSwordless = false,
+  targetFov = 50, // Default FOV if not provided
+  extraObstacles,
 }) => {
   const input = useKeyboard();
   const groupRef = useRef<THREE.Group>(null);
   const canInteractRef = useRef(false);
+  const prevChunk = useRef({ cx: -1, cz: -1 });
+
+  // Reusable scratch objects — avoids per-frame allocation/GC churn that
+  // was causing periodic hitches, most noticeable during the chase where
+  // multiple systems are running useFrame simultaneously.
+  const tmpAimDir = useRef(new THREE.Vector3()).current;
+  const tmpLookTarget = useRef(new THREE.Vector3()).current;
+  const candidatesBuf = useRef<{ x: number; z: number }[]>([]).current;
+  const seenBuf = useRef(new Set<string>()).current;
 
   useLayoutEffect(() => {
     if (groupRef.current && playerRef.current) {
@@ -54,6 +93,7 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
   const stepAudioTimer = useRef(0);
   const WALK_AUDIO_INTERVAL = 0.38;
   const CHASE_AUDIO_INTERVAL = 0.28; // Faster step rhythm when chased
+  const CHASE_SPEED_MULTIPLIER = 1.3; // Player moves faster than base while chased
 
   const collisionGrid = useMemo(() => generateCollisionGrid(map), [map]);
 
@@ -74,6 +114,15 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
     const gridZ = Math.round(nextZ / TILE_SIZE);
 
     if (gridZ < 0 || gridZ >= map.length || gridX < 0 || gridX >= map[0].length) return true;
+
+    if (extraObstacles) {
+      for (const obs of extraObstacles) {
+        const odx = nextX - obs.x;
+        const odz = nextZ - obs.z;
+        const minDist = obs.radius + PLAYER_RADIUS;
+        if (odx * odx + odz * odz < minDist * minDist) return true;
+      }
+    }
 
     const currentTileId = map[currGridZ]?.[currGridX];
     const isTrappedInDoor =
@@ -113,21 +162,10 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
               const valWest = x > 0 ? map[z][x - 1] : 0;
               const valEast = x < map[0].length - 1 ? map[z][x + 1] : 0;
 
-              const isStructure = (v: number) => {
-                const d = getTileDef(v);
-                return (
-                  d &&
-                  (d.type === 'wall' ||
-                    v === TILE_TYPES.DOOR_CLOSED ||
-                    v === TILE_TYPES.DOOR_OPEN ||
-                    v === TILE_TYPES.DOOR_LOCKED_SILVER)
-                );
-              };
-
               const isVertical =
-                (isStructure(valNorth) || isStructure(valSouth)) &&
-                !isStructure(valWest) &&
-                !isStructure(valEast);
+                (isStructureTile(valNorth) || isStructureTile(valSouth)) &&
+                !isStructureTile(valWest) &&
+                !isStructureTile(valEast);
 
               if (isVertical) {
                 halfW = WALL_THICKNESS / 2;
@@ -165,11 +203,11 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
   }, []);
 
   const [animation, setAnimation] = useState<'idle' | 'walk'>('idle');
-  const [direction, setDirection] = useState('S');
+  const [direction, setDirection] = useState<Direction>('S');
   const currentAim = useRef(new THREE.Vector3(0, 0, 5));
   const prevTile = useRef({ x: -1, z: -1 });
 
-  const getDirectionFromAngle = (angle: number) => {
+  const getDirectionFromAngle = (angle: number): Direction => {
     const deg = THREE.MathUtils.radToDeg(angle);
     if (deg >= -22.5 && deg < 22.5) return 'E';
     if (deg >= 22.5 && deg < 67.5) return 'SE';
@@ -184,8 +222,6 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
 
   useFrame((state, delta) => {
     if (!groupRef.current) return;
-
-    playerRef.current.copy(groupRef.current.position);
 
     if (!active) {
       setAnimation('idle');
@@ -209,30 +245,44 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
     const currentZ = groupRef.current.position.z;
     const pGridX = Math.round(currentX / TILE_SIZE);
     const pGridZ = Math.round(currentZ / TILE_SIZE);
-    const aimDir = currentAim.current.clone().normalize();
+
+    // Was `currentAim.current.clone().normalize()` — reuse a scratch vector
+    // instead of allocating a new Vector3 every frame.
+    tmpAimDir.copy(currentAim.current).normalize();
+    const aimDir = tmpAimDir;
 
     const primaryDx = Math.abs(aimDir.x) > Math.abs(aimDir.z) ? Math.sign(aimDir.x) : 0;
     const primaryDz = Math.abs(aimDir.x) > Math.abs(aimDir.z) ? 0 : Math.sign(aimDir.z);
 
-    const neighborOffsets = [
-      { x: primaryDx, z: primaryDz }, // facing direction — checked first
-      { x: 1, z: 0 },
-      { x: -1, z: 0 },
-      { x: 0, z: 1 },
-      { x: 0, z: -1 },
-    ];
+    // Was: build a fresh `neighborOffsets` array, a fresh `candidates`
+    // array + objects, and a fresh `Set` with string keys — every single
+    // frame, regardless of movement. Now reuses pooled buffers.
+    candidatesBuf.length = 0;
+    seenBuf.clear();
 
-    const candidates = [{ x: pGridX, z: pGridZ }];
-    const seen = new Set(candidates.map((c) => `${c.x},${c.z}`));
-    for (const off of neighborOffsets) {
+    candidatesBuf.push({ x: pGridX, z: pGridZ });
+    seenBuf.add(`${pGridX},${pGridZ}`);
+
+    // Facing direction is checked first (matches original priority order).
+    const facingX = pGridX + primaryDx;
+    const facingZ = pGridZ + primaryDz;
+    const facingKey = `${facingX},${facingZ}`;
+    if (!seenBuf.has(facingKey)) {
+      seenBuf.add(facingKey);
+      candidatesBuf.push({ x: facingX, z: facingZ });
+    }
+
+    for (const off of NEIGHBOR_DIRS) {
       const cx = pGridX + off.x;
       const cz = pGridZ + off.z;
       const key = `${cx},${cz}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        candidates.push({ x: cx, z: cz });
+      if (!seenBuf.has(key)) {
+        seenBuf.add(key);
+        candidatesBuf.push({ x: cx, z: cz });
       }
     }
+
+    const candidates = candidatesBuf;
 
     let foundCandidate: { x: number; z: number } | null = null;
 
@@ -271,6 +321,8 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
 
     if (input.interact && !prevInteract.current && foundCandidate) {
       onInteract(foundCandidate.x, foundCandidate.z);
+      prevInteract.current = input.interact;
+      return; // Halts the frame loop to prevent overwriting the new spawnPos
     }
     prevInteract.current = input.interact;
 
@@ -309,8 +361,9 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
       moveX /= length;
       moveZ /= length;
 
-      const nextX = groupRef.current.position.x + moveX * MOVEMENT_SPEED * delta;
-      const nextZ = groupRef.current.position.z + moveZ * MOVEMENT_SPEED * delta;
+      const speedMultiplier = isChased ? CHASE_SPEED_MULTIPLIER : 1;
+      const nextX = groupRef.current.position.x + moveX * MOVEMENT_SPEED * speedMultiplier * delta;
+      const nextZ = groupRef.current.position.z + moveZ * MOVEMENT_SPEED * speedMultiplier * delta;
 
       if (!checkCollision(nextX, groupRef.current.position.z)) {
         groupRef.current.position.x = nextX;
@@ -318,6 +371,8 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
       if (!checkCollision(groupRef.current.position.x, nextZ)) {
         groupRef.current.position.z = nextZ;
       }
+
+      playerRef.current.copy(groupRef.current.position);
     } else {
       setAnimation('idle');
       stepAudioTimer.current = WALK_AUDIO_INTERVAL;
@@ -363,31 +418,38 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
     );
 
     if (state.camera instanceof THREE.PerspectiveCamera) {
-      state.camera.fov = THREE.MathUtils.lerp(state.camera.fov, 50, dampFactor);
+      state.camera.fov = THREE.MathUtils.lerp(state.camera.fov, targetFov, dampFactor);
       state.camera.updateProjectionMatrix();
     }
 
-    const lookTarget = groupRef.current.position.clone().add(new THREE.Vector3(0, 0, -1.0));
-    state.camera.lookAt(lookTarget);
+    // Was: `groupRef.current.position.clone().add(new THREE.Vector3(0, 0, -1.0))`
+    // — allocated two Vector3s every frame. Reuse a scratch vector instead.
+    tmpLookTarget.copy(groupRef.current.position);
+    tmpLookTarget.z -= 1.0;
+    state.camera.lookAt(tmpLookTarget);
 
     const currentGridX = Math.round(groupRef.current.position.x / TILE_SIZE);
     const currentGridZ = Math.round(groupRef.current.position.z / TILE_SIZE);
 
-    if (currentGridX !== prevTile.current.x || currentGridZ !== prevTile.current.z) {
-      onStep(currentGridX, currentGridZ);
+    const { cx, cz } = getChunkCoords(currentGridX, currentGridZ);
+    if (cx !== prevChunk.current.cx || cz !== prevChunk.current.cz) {
+      onStep(cx, cz);
+      prevChunk.current = { cx, cz };
+    }
 
+    if (currentGridX !== prevTile.current.x || currentGridZ !== prevTile.current.z) {
+      // Remove the old onStep(currentGridX, currentGridZ) from here
       const currentTileId = map[currentGridZ]?.[currentGridX];
       if (currentTileId === TILE_TYPES.COBBLESTONE_5) {
         usePlayerStore.getState().modifySanity(-SANITY_CONFIG.DRAIN.CURSED_TILE_STEP);
       }
-
       prevTile.current = { x: currentGridX, z: currentGridZ };
     }
   });
 
   return (
     <group ref={groupRef}>
-      <pointLight position={[0, 1, 0]} intensity={2.5} distance={2} decay={0} color="#fffbd6" />
+      <pointLight position={[0, 1, 0]} intensity={2.5} distance={2} decay={0} color="#ffd59e" />
       <spotLight
         position={[0, 1.2, 0.1]}
         target={lightTarget}
@@ -398,9 +460,14 @@ export const PlayerController: React.FC<PlayerControllerProps> = ({
         castShadow
         shadow-mapSize={[256, 256]}
         shadow-normalBias={0.05}
-        color="#fffbd6"
+        color="#ffd59e"
       />
-      <Character action={animation} direction={direction} position={[0, 0.15, 0]} />
+      <Character
+        action={animation}
+        direction={direction}
+        position={[0, 0.15, 0]}
+        isSwordless={isSwordless}
+      />
     </group>
   );
 };

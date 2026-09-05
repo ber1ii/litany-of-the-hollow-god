@@ -20,6 +20,42 @@ import type { MonsterType } from '../../types/GameTypes';
 import { ENEMIES } from '../../data/Enemies';
 import { buildStructureFootprint, getEffectiveTileId } from '../../utils/StructureFootprint';
 import { Prop3D } from './Prop3D';
+import { AtlasFloor } from './AtlasFloor';
+import { getChunkCoords, getChunkKey } from '../../utils/ChunkUtils';
+
+// Concat only the chunk buckets that are currently visible — O(visible chunks)
+// instead of re-scanning every group/tile in the whole map on every chunk
+// crossing (that full-map rescan was the chunk-load lag spike).
+function selectVisibleFromBuckets<T>(
+  buckets: Map<string, T[]>,
+  visibleChunkKeys: Set<string>
+): T[] {
+  if (visibleChunkKeys.size === 0) {
+    return Array.from(buckets.values()).flat();
+  }
+  const result: T[] = [];
+  for (const key of visibleChunkKeys) {
+    const bucket = buckets.get(key);
+    if (bucket) result.push(...bucket);
+  }
+  return result;
+}
+
+const ATLAS_URL = '/textures/sheets/mainlevbuild.png';
+const configuredTextureCache = new Map<string, THREE.Texture>();
+
+const getConfiguredAtlasTexture = (raw: THREE.Texture, url: string) => {
+  const cached = configuredTextureCache.get(url);
+  if (cached) return cached;
+
+  const t = raw.clone();
+  t.magFilter = THREE.NearestFilter;
+  t.minFilter = THREE.NearestFilter;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.needsUpdate = true;
+  configuredTextureCache.set(url, t);
+  return t;
+};
 
 const ENEMY_TILE_CONFIG: Record<number, { type: MonsterType; prefix: string }> = {
   [TILE_TYPES.SKELETON]: { type: 'skeleton', prefix: 'skeleton' },
@@ -45,7 +81,7 @@ const isStructure = (v: number) => {
     return false;
   }
   const def = getTileDef(v);
-  if (def.type === 'item') return false;
+  if (def?.type === 'item') return false;
   return (
     def &&
     (def.type === 'wall' ||
@@ -75,14 +111,14 @@ const createSmartGeometry = (
   cullLeft: boolean,
   cullRight: boolean
 ) => {
-  const isStructure = tileDef.placement === 'structure';
+  const isStructureTile = tileDef.placement === 'structure';
 
   const baseWidth = tileDef.size.w * TILE_SIZE;
-  const depth = isStructure ? tileDef.size.h * TILE_SIZE : WALL_THICKNESS;
+  const depth = isStructureTile ? tileDef.size.h * TILE_SIZE : WALL_THICKNESS;
 
   const height = tileDef.wallHeight
     ? tileDef.wallHeight * TILE_SIZE
-    : isStructure
+    : isStructureTile
       ? STRUCTURE_HEIGHT_DEFAULT
       : tileDef.size.h * TILE_SIZE;
 
@@ -95,7 +131,7 @@ const createSmartGeometry = (
   const indexAttribute = geometry.getIndex();
   if (indexAttribute) {
     const oldIndices = indexAttribute.array;
-    const newIndices = [];
+    const newIndices: number[] = [];
 
     if (!cullRight) {
       for (let i = 0; i < 6; i++) newIndices.push(oldIndices[i]);
@@ -143,11 +179,12 @@ const StaticLevel = React.memo(
   ({
     map,
     texture,
-    playerPos,
+    visibleChunkKeys,
   }: {
     map: number[][];
     texture: THREE.Texture;
     playerPos: React.RefObject<THREE.Vector3>;
+    visibleChunkKeys: Set<string>;
   }) => {
     const mapWidth = map[0].length;
     const mapHeight = map.length;
@@ -157,13 +194,18 @@ const StaticLevel = React.memo(
       [map]
     );
 
-    const wallMeshes = useMemo(() => {
+    const wallMeshesByChunk = useMemo(() => {
+      const buckets = new Map<string, React.ReactElement[]>();
       const groups = getWallGroups(map);
-      return groups.map((group, index) => {
-        const tileId = group[0].id;
-        const tileDef = getTileDef(tileId);
+      groups.forEach((group, index) => {
         const anchorX = group[0].x;
         const anchorZ = group[0].z;
+
+        const { cx, cz } = getChunkCoords(anchorX, anchorZ);
+        const chunkKey = getChunkKey(cx, cz);
+
+        const tileId = group[0].id;
+        const tileDef = getTileDef(tileId);
 
         let posX = anchorX * TILE_SIZE;
         let posZ = anchorZ * TILE_SIZE;
@@ -241,19 +283,26 @@ const StaticLevel = React.memo(
           cullRight
         );
 
-        return (
+        const bucket = buckets.get(chunkKey) ?? [];
+        bucket.push(
           <SmartWall
             key={`wall-${index}`}
             geometry={geometry}
             texture={texture}
-            playerPos={playerPos}
             wallType={type}
             position={[posX, 0, posZ]}
             rotation={[0, rotationY, 0]}
           />
         );
+        buckets.set(chunkKey, bucket);
       });
-    }, [map, texture, playerPos, mapWidth, mapHeight, getOrientation]);
+      return buckets;
+    }, [map, texture, mapWidth, mapHeight, getOrientation]);
+
+    const wallMeshes = useMemo(
+      () => selectVisibleFromBuckets(wallMeshesByChunk, visibleChunkKeys),
+      [wallMeshesByChunk, visibleChunkKeys]
+    );
 
     const cornerMeshes = useMemo(() => {
       const corners = [
@@ -263,6 +312,13 @@ const StaticLevel = React.memo(
         { x: mapWidth - 1, z: mapHeight - 1 },
       ];
       return corners.flatMap((c, i) => {
+        const { cx, cz } = getChunkCoords(c.x, c.z);
+        const chunkKey = getChunkKey(cx, cz);
+
+        if (visibleChunkKeys.size > 0 && !visibleChunkKeys.has(chunkKey)) {
+          return [];
+        }
+
         const tileId = map[c.z][c.x];
         if (tileId === 0) return [];
         const tileDef = getTileDef(tileId);
@@ -274,7 +330,6 @@ const StaticLevel = React.memo(
             key={`c-h-${i}`}
             geometry={geometry}
             texture={texture}
-            playerPos={playerPos}
             wallType="rigid"
             position={[posX, 0, posZ]}
             rotation={[0, 0, 0]}
@@ -283,24 +338,27 @@ const StaticLevel = React.memo(
             key={`c-v-${i}`}
             geometry={geometry}
             texture={texture}
-            playerPos={playerPos}
             wallType="rigid"
             position={[posX, 0, posZ]}
             rotation={[0, Math.PI / 2, 0]}
           />,
         ];
       });
-    }, [map, mapWidth, mapHeight, texture, playerPos]);
+    }, [map, mapWidth, mapHeight, texture, visibleChunkKeys]);
 
     return (
-      <group>
+      <group name="level-walls">
         {wallMeshes}
         {cornerMeshes}
       </group>
     );
   },
   (prevProps, nextProps) => {
-    if (prevProps.texture !== nextProps.texture || prevProps.playerPos !== nextProps.playerPos) {
+    if (
+      prevProps.texture !== nextProps.texture ||
+      prevProps.playerPos !== nextProps.playerPos ||
+      prevProps.visibleChunkKeys !== nextProps.visibleChunkKeys
+    ) {
       return false;
     }
     const h = prevProps.map.length;
@@ -324,6 +382,7 @@ const StaticLevel = React.memo(
 interface LevelBuilderProps {
   map: number[][];
   playerPos: React.RefObject<THREE.Vector3>;
+  visibleChunkKeys: Set<string>;
   onCombatStart: (id: string) => void;
   enemyTracker: React.RefObject<Map<string, { x: number; z: number }>>;
   deadEnemyIds: Set<string>;
@@ -334,20 +393,15 @@ interface LevelBuilderProps {
 export const LevelBuilder: React.FC<LevelBuilderProps> = ({
   map,
   playerPos,
+  visibleChunkKeys,
   onCombatStart,
   enemyTracker,
   deadEnemyIds,
   onEnemyChaseChange,
   enemiesActive = true,
 }) => {
-  const rawAtlas = useTexture('/textures/sheets/mainlevbuild.png');
-  const texture = useMemo(() => {
-    const t = rawAtlas.clone();
-    t.magFilter = THREE.NearestFilter;
-    t.minFilter = THREE.NearestFilter;
-    t.colorSpace = THREE.SRGBColorSpace;
-    return t;
-  }, [rawAtlas]);
+  const rawAtlas = useTexture(ATLAS_URL);
+  const texture = useMemo(() => getConfiguredAtlasTexture(rawAtlas, ATLAS_URL), [rawAtlas]);
 
   const collisionGrid = useMemo(() => {
     const footprint = buildStructureFootprint(map);
@@ -357,7 +411,6 @@ export const LevelBuilder: React.FC<LevelBuilderProps> = ({
         if (id === 0) return false;
         const def = getTileDef(id);
 
-        // Exclude floor structures from collision
         const isSolidWall =
           def.type === 'wall' ||
           (def.type === 'prop' && def.solid === true) ||
@@ -373,10 +426,20 @@ export const LevelBuilder: React.FC<LevelBuilderProps> = ({
     [map]
   );
 
-  const items = useMemo(() => {
-    const list: React.ReactElement[] = [];
+  const itemsByChunk = useMemo(() => {
+    const buckets = new Map<string, React.ReactElement[]>();
+    const pushTo = (chunkKey: string, el: React.ReactElement) => {
+      const bucket = buckets.get(chunkKey) ?? [];
+      bucket.push(el);
+      buckets.set(chunkKey, bucket);
+    };
+
     map.forEach((row, z) => {
       row.forEach((tile, x) => {
+        const { cx, cz } = getChunkCoords(x, z);
+        const chunkKey = getChunkKey(cx, cz);
+        const list: React.ReactElement[] = [];
+
         if (isDoor(tile)) {
           const isLocked = tile === TILE_TYPES.DOOR_LOCKED_SILVER;
           let rotationY = 0;
@@ -402,7 +465,6 @@ export const LevelBuilder: React.FC<LevelBuilderProps> = ({
           );
         }
 
-        // Restored structural items
         if (tile === TILE_TYPES.TORCH_WALL) {
           list.push(<Torch key={`torch-${x}-${z}`} x={x} z={z} />);
         }
@@ -462,9 +524,13 @@ export const LevelBuilder: React.FC<LevelBuilderProps> = ({
             list.push(<LootDrop key={`item-${x}-${z}`} x={x} z={z} item={itemData} />);
           }
         }
+
+        if (list.length > 0) {
+          for (const el of list) pushTo(chunkKey, el);
+        }
       });
     });
-    return list;
+    return buckets;
   }, [
     map,
     playerPos,
@@ -477,9 +543,20 @@ export const LevelBuilder: React.FC<LevelBuilderProps> = ({
     enemiesActive,
   ]);
 
+  const items = useMemo(
+    () => selectVisibleFromBuckets(itemsByChunk, visibleChunkKeys),
+    [itemsByChunk, visibleChunkKeys]
+  );
+
   return (
     <group>
-      <StaticLevel map={map} texture={texture} playerPos={playerPos} />
+      <AtlasFloor map={map} visibleChunkKeys={visibleChunkKeys} />
+      <StaticLevel
+        map={map}
+        texture={texture}
+        playerPos={playerPos}
+        visibleChunkKeys={visibleChunkKeys}
+      />
       {items}
     </group>
   );

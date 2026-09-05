@@ -13,12 +13,46 @@ const CHASE_SPEED_MULTIPLIER = 1.4;
 const SEARCH_DURATION = 3.0;
 const CHASE_REPATH_INTERVAL = 0.3;
 const CHASE_DIRECT_DISTANCE = 1.2;
+const MONSTER_RADIUS = 0.25; // Prevents clipping by acting as a physical bounding box
 
-function canMoveTo(x: number, z: number, grid: boolean[][]): boolean {
-  const gx = Math.round(x / TILE_SIZE);
-  const gz = Math.round(z / TILE_SIZE);
-  if (gz < 0 || gz >= grid.length || gx < 0 || gx >= grid[0].length) return false;
-  return !grid[gz][gx];
+function canMoveTo(
+  nextX: number,
+  nextZ: number,
+  grid: boolean[][],
+  radius: number = MONSTER_RADIUS
+): boolean {
+  const gridX = Math.round(nextX / TILE_SIZE);
+  const gridZ = Math.round(nextZ / TILE_SIZE);
+
+  if (gridZ < 0 || gridZ >= grid.length || gridX < 0 || gridX >= grid[0].length) return false;
+
+  const minGX = Math.max(0, gridX - 1);
+  const maxGX = Math.min(grid[0].length - 1, gridX + 1);
+  const minGZ = Math.max(0, gridZ - 1);
+  const maxGZ = Math.min(grid.length - 1, gridZ + 1);
+
+  for (let z = minGZ; z <= maxGZ; z++) {
+    for (let x = minGX; x <= maxGX; x++) {
+      if (grid[z][x]) {
+        const wallX = x * TILE_SIZE;
+        const wallZ = z * TILE_SIZE;
+        const halfSize = TILE_SIZE / 2;
+
+        // Clamp point to closest edge of the wall AABB
+        const clampedX = Math.max(wallX - halfSize, Math.min(nextX, wallX + halfSize));
+        const clampedZ = Math.max(wallZ - halfSize, Math.min(nextZ, wallZ + halfSize));
+
+        // Check distance to closest edge
+        const dx = nextX - clampedX;
+        const dz = nextZ - clampedZ;
+
+        if (dx * dx + dz * dz < radius * radius) {
+          return false;
+        }
+      }
+    }
+  }
+  return true;
 }
 
 function hasLineOfSight(
@@ -147,16 +181,14 @@ export function useMonsterBehavior(
     const dz = playerPos.z - currentPos.current.z;
 
     const distance = Math.sqrt(dx * dx + dz * dz);
-    const tileDistance = distance / TILE_SIZE; // Convert world units to map tiles
+    const tileDistance = distance / TILE_SIZE;
 
     const isFacingPlayer = () => {
       if (behavior.type !== 'static' || !behavior.facing) return true;
 
-      // Vector from monster to player
       const toPlayerX = dx / distance;
       const toPlayerZ = dz / distance;
 
-      // Map direction string to normalized forward vector
       const forwardVectors: Record<Direction, { x: number; z: number }> = {
         N: { x: 0, z: -1 },
         S: { x: 0, z: 1 },
@@ -167,7 +199,6 @@ export function useMonsterBehavior(
       const fwd = forwardVectors[behavior.facing];
       const dot = toPlayerX * fwd.x + toPlayerZ * fwd.z;
 
-      // Requires player to be within a 120-degree cone in front of monster (dot product > 0.5)
       return dot > 0.5;
     };
 
@@ -250,8 +281,11 @@ export function useMonsterBehavior(
             currentPos.current.z = targetZ;
             chasePathRef.current.shift();
           } else {
-            currentPos.current.x += (hx / distToNode) * chaseSpeed * delta;
-            currentPos.current.z += (hz / distToNode) * chaseSpeed * delta;
+            const nextX = currentPos.current.x + (hx / distToNode) * chaseSpeed * delta;
+            const nextZ = currentPos.current.z + (hz / distToNode) * chaseSpeed * delta;
+
+            if (canMoveTo(nextX, currentPos.current.z, collisionGrid)) currentPos.current.x = nextX;
+            if (canMoveTo(currentPos.current.x, nextZ, collisionGrid)) currentPos.current.z = nextZ;
 
             if (Math.abs(hx) > Math.abs(hz)) {
               facingRef.current = hx > 0 ? 'E' : 'W';
@@ -301,8 +335,11 @@ export function useMonsterBehavior(
           pathRef.current.shift();
         } else {
           const baseSpeed = behavior.speed ?? 1.5;
-          currentPos.current.x += (hx / distToNode) * baseSpeed * delta;
-          currentPos.current.z += (hz / distToNode) * baseSpeed * delta;
+          const nextX = currentPos.current.x + (hx / distToNode) * baseSpeed * delta;
+          const nextZ = currentPos.current.z + (hz / distToNode) * baseSpeed * delta;
+
+          if (canMoveTo(nextX, currentPos.current.z, collisionGrid)) currentPos.current.x = nextX;
+          if (canMoveTo(currentPos.current.x, nextZ, collisionGrid)) currentPos.current.z = nextZ;
 
           if (Math.abs(hx) > Math.abs(hz)) {
             facingRef.current = hx > 0 ? 'E' : 'W';
@@ -317,7 +354,7 @@ export function useMonsterBehavior(
       }
     }
 
-    // DEFAULT BEHAVIOR
+    // DEFAULT BEHAVIOR (Static / Patrol)
     if (state.current === 'default') {
       if (behavior.type === 'static') {
         facingRef.current = behavior.facing || 'S';
@@ -328,22 +365,32 @@ export function useMonsterBehavior(
         const move = patrolDir.current * speed * delta;
 
         if (axis === 'x') {
-          currentPos.current.x += move;
-          const rightBound = (startX + range) * TILE_SIZE;
-          const leftBound = (startX - range) * TILE_SIZE;
+          const nextX = currentPos.current.x + move;
 
-          if (currentPos.current.x > rightBound) patrolDir.current = -1;
-          else if (currentPos.current.x < leftBound) patrolDir.current = 1;
+          if (!canMoveTo(nextX, currentPos.current.z, collisionGrid)) {
+            patrolDir.current *= -1; // Bounce off wall instantly
+          } else {
+            currentPos.current.x = nextX;
+            const rightBound = (startX + range) * TILE_SIZE;
+            const leftBound = (startX - range) * TILE_SIZE;
 
+            if (currentPos.current.x > rightBound) patrolDir.current = -1;
+            else if (currentPos.current.x < leftBound) patrolDir.current = 1;
+          }
           facingRef.current = patrolDir.current === 1 ? 'E' : 'W';
         } else {
-          currentPos.current.z += move;
-          const bottomBound = (startZ + range) * TILE_SIZE;
-          const topBound = (startZ - range) * TILE_SIZE;
+          const nextZ = currentPos.current.z + move;
 
-          if (currentPos.current.z > bottomBound) patrolDir.current = -1;
-          else if (currentPos.current.z < topBound) patrolDir.current = 1;
+          if (!canMoveTo(currentPos.current.x, nextZ, collisionGrid)) {
+            patrolDir.current *= -1; // Bounce off wall instantly
+          } else {
+            currentPos.current.z = nextZ;
+            const bottomBound = (startZ + range) * TILE_SIZE;
+            const topBound = (startZ - range) * TILE_SIZE;
 
+            if (currentPos.current.z > bottomBound) patrolDir.current = -1;
+            else if (currentPos.current.z < topBound) patrolDir.current = 1;
+          }
           facingRef.current = patrolDir.current === 1 ? 'S' : 'N';
         }
       }

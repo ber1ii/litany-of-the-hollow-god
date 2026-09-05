@@ -105,6 +105,8 @@ export interface EnemyDef {
     defense: number;
     speed: number;
     maxHp: number;
+    xp: number;
+    gold: number;
   };
   scale: number;
   sanityDrainOnHit?: number;

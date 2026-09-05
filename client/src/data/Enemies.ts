@@ -9,7 +9,7 @@ export const ENEMIES: Record<string, EnemyDef & { defaultBehavior?: MonsterBehav
     hasMask: true,
     tier: 'common',
     aiBehavior: 'aggressive',
-    baseStats: { attack: 10, defense: 2, speed: 3, maxHp: 80 },
+    baseStats: { attack: 10, defense: 2, speed: 3, maxHp: 80, xp: 15, gold: 5 },
     scale: 3,
     sprites: {
       idle: {
@@ -130,7 +130,7 @@ export const ENEMIES: Record<string, EnemyDef & { defaultBehavior?: MonsterBehav
     hasMask: true,
     tier: 'common',
     aiBehavior: 'aggressive',
-    baseStats: { attack: 16, defense: 6, speed: 4, maxHp: 130 },
+    baseStats: { attack: 16, defense: 6, speed: 6, maxHp: 130, xp: 5, gold: 125 },
     scale: 3.2,
     sprites: {
       idle: {
@@ -261,7 +261,7 @@ export const ENEMIES: Record<string, EnemyDef & { defaultBehavior?: MonsterBehav
     hasMask: true,
     tier: 'elite',
     aiBehavior: 'aggressive',
-    baseStats: { attack: 24, defense: 10, speed: 2, maxHp: 220 },
+    baseStats: { attack: 24, defense: 10, speed: 2, maxHp: 220, xp: 75, gold: 1025 },
     scale: 3.4,
     yOffset: -0.35,
     sprites: {
@@ -401,7 +401,7 @@ export const ENEMIES: Record<string, EnemyDef & { defaultBehavior?: MonsterBehav
     hasMask: true,
     tier: 'common',
     aiBehavior: 'erratic',
-    baseStats: { attack: 14, defense: 3, speed: 6, maxHp: 95 },
+    baseStats: { attack: 14, defense: 3, speed: 6, maxHp: 95, xp: 25, gold: 6 },
     scale: 3.0,
     sanityDrainOnHit: 8,
     sprites: {
@@ -531,7 +531,7 @@ export const ENEMIES: Record<string, EnemyDef & { defaultBehavior?: MonsterBehav
     tier: 'boss',
     aiBehavior: 'defensive',
     hasMask: true,
-    baseStats: { attack: 32, defense: 12, speed: 5, maxHp: 450 },
+    baseStats: { attack: 32, defense: 12, speed: 5, maxHp: 450, xp: 200, gold: 15000 },
     scale: 3.5,
     sanityDrainOnHit: 12,
     yOffset: -0.45,

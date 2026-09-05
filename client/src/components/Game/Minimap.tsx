@@ -10,6 +10,7 @@ interface MinimapProps {
   playerPos: React.RefObject<THREE.Vector3>;
   playerRotation: React.RefObject<number>;
   enemyTracker: React.RefObject<Map<string, { x: number; z: number }>>;
+  version: number; // used to trigger re-render when map changes
 }
 
 const COLORS = {

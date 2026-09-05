@@ -1,6 +1,5 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { AtlasFloor } from './AtlasFloor';
 import { PlayerController } from './PlayerController';
 import * as THREE from 'three';
 import { LevelBuilder } from './LevelBuilder';
@@ -28,7 +27,11 @@ import { AudioManager } from '../../managers/AudioManager';
 import { InteractPrompt } from './InteractPrompt';
 import { getSignData, type SignEntry } from '../../data/SignData';
 import { SignDialog } from './SignDialog';
-import { getSpawnPosition } from '../../utils/MapParser';
+import { getSpawnPosition, getMarkerCenter } from '../../utils/MapParser';
+import { WallUniformDriver } from './SmartWall';
+import { getVisibleChunkKeys } from '../../utils/ChunkUtils';
+import { ChaseEventController } from './ChaseEventController';
+import { tileEventBus } from '../../utils/TileEventBus';
 
 const FOG_COLOR = '#040408';
 
@@ -89,6 +92,16 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
   );
 
   const [activeSign, setActiveSign] = useState<SignEntry | null>(null);
+  const [isCinematic, setIsCinematic] = useState(false);
+  // Reserved for the sword-drop mask/visual treatment planned for later —
+  // for now it also flips true on the same event, but the sword's actual
+  // removal from inventory below is independent of this flag.
+  const [isSwordless /*setIsSwordless*/] = useState(false);
+  const [showPanicPrompt, setShowPanicPrompt] = useState(false);
+  const [mapVersion, setMapVersion] = useState(0);
+
+  const [chaseFov, setChaseFov] = useState(50);
+  const WIDE_CHASE_FOV = 68;
 
   const levelChanges = useRef<Map<string, Map<string, number>>>(
     initialSaveData ? SaveManager.deserializeLevelChanges(initialSaveData.levelChanges) : new Map()
@@ -115,7 +128,7 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
   // Structure footprint for the current map — lets handleInteract resolve
   // any cell inside a multi-tile structure (e.g. dark_archway's 5x6
   // footprint) to that structure's tile id, not just its anchor cell.
-  const footprint = useMemo(() => buildStructureFootprint(mapData), [mapData]);
+  const footprint = useMemo(() => buildStructureFootprint(mapData), [currentLevelId]);
 
   // Initialize Store on Mount
   useEffect(() => {
@@ -158,6 +171,12 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
 
   const chasingEnemyIds = useRef<Set<string>>(new Set());
   const [isPlayerChased, setIsPlayerChased] = useState(false);
+  const [isBossChaseActive, setIsBossChaseActive] = useState(false);
+  const [boulderObstacle, setBoulderObstacle] = useState<{
+    x: number;
+    z: number;
+    radius: number;
+  } | null>(null);
   const handleEnemyChaseChange = (enemyId: string, isChasing: boolean) => {
     if (isChasing) chasingEnemyIds.current.add(enemyId);
     else chasingEnemyIds.current.delete(enemyId);
@@ -178,6 +197,23 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
   const [canInteract, setCanInteract] = useState(false);
 
   const [isSaving, setIsSaving] = useState(false);
+
+  const [visibleChunkKeys, setVisibleChunkKeys] = useState<Set<string>>(() => new Set());
+
+  const handleStep = useCallback(() => {
+    if (!playerPosRef.current) return;
+    setVisibleChunkKeys((prevKeys) =>
+      getVisibleChunkKeys(playerPosRef.current.x, playerPosRef.current.z, 2, 3, prevKeys)
+    );
+  }, []);
+
+  useEffect(() => {
+    if (playerPosRef.current) {
+      setVisibleChunkKeys(
+        getVisibleChunkKeys(playerPosRef.current.x, playerPosRef.current.z, 2, 3)
+      );
+    }
+  }, [currentLevelId]);
 
   useEffect(() => {
     AudioManager.playAmbient('ambiance-water-drip-long');
@@ -249,11 +285,13 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
   };
 
   const updateMapTile = (x: number, z: number, newTileId: number) => {
-    setMapData((prev) => {
-      const newMap = prev.map((row) => [...row]);
-      newMap[z][x] = newTileId;
-      return newMap;
-    });
+    const oldTileId = mapData[z][x];
+    if (oldTileId === newTileId) return;
+
+    mapData[z][x] = newTileId; // mutate in place — no clone, no full rescan
+    tileEventBus.emit(x, z, oldTileId, newTileId);
+    setMapVersion((v) => v + 1); // cheap re-render trigger for UI (minimap etc.)
+
     if (!levelChanges.current.has(currentLevelId)) {
       levelChanges.current.set(currentLevelId, new Map());
     }
@@ -299,6 +337,7 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
     if (enemyTracker.current) enemyTracker.current.clear();
     chasingEnemyIds.current.clear();
     setIsPlayerChased(false);
+    setBoulderObstacle(null);
 
     setTimeout(() => setGameState('roam'), 1000);
     addNotification('Restored Health, Mind & Flasks.');
@@ -350,6 +389,7 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
     if (enemyTracker.current) enemyTracker.current.clear();
     chasingEnemyIds.current.clear();
     setIsPlayerChased(false);
+    setBoulderObstacle(null);
 
     if (store.lastRestedPos) {
       playerPosRef.current.set(store.lastRestedPos.x, store.lastRestedPos.y, store.lastRestedPos.z);
@@ -394,22 +434,41 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
     }
 
     if (tileId === TILE_TYPES.ARCH_DARK) {
-      const nextLevelId = 'LEVEL_2';
-      const nextMap = LEVEL_REGISTRY[nextLevelId];
-      if (nextMap) {
-        setMapData(nextMap.map((row) => [...row]));
+      // Toggle target level dynamically
+      const nextLevelId = currentLevelId === 'LEVEL_1' ? 'LEVEL_2' : 'LEVEL_1';
+      const baseMap = LEVEL_REGISTRY[nextLevelId];
+
+      if (baseMap) {
+        // Clone base map and re-apply stored map modifications for target level
+        const nextMap = baseMap.map((row) => [...row]);
+        const targetChanges = levelChanges.current.get(nextLevelId);
+        if (targetChanges) {
+          targetChanges.forEach((tId, key) => {
+            const [x, z] = key.split(',').map(Number);
+            if (nextMap[z] && nextMap[z][x] !== undefined) {
+              nextMap[z][x] = tId;
+            }
+          });
+        }
+
+        setMapData(nextMap);
         setCurrentLevelId(nextLevelId);
 
-        // Utilize our newly uniform spawn function instead of hardcoding
+        // Resolve spawn position for target map
         const spawnPos = getInitialSpawnForLevel(nextLevelId);
         playerPosRef.current.copy(spawnPos);
 
+        // Reset local runtime level state
         setDeadEnemyIds(new Set());
         enemyTracker.current.clear();
         chasingEnemyIds.current.clear();
         setIsPlayerChased(false);
+        setBoulderObstacle(null);
         playerRotationRef.current = 0;
-        addNotification('Entering the beginner area...');
+
+        addNotification(
+          nextLevelId === 'LEVEL_2' ? 'Entering Level 2...' : 'Returning to Level 1...'
+        );
       }
       return;
     }
@@ -442,11 +501,11 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
     }
 
     if (tileId === TILE_TYPES.GOLD) {
-      const GOLD_PICKUP_AMOUNT = 25;
+      const GOLD_PICKUP_AMOUNT = 125;
       AudioManager.play('collect-coin', { category: 'sfx' });
       addRewards(0, GOLD_PICKUP_AMOUNT);
       addNotification(`Picked up ${GOLD_PICKUP_AMOUNT} Gold.`);
-      updateMapTile(x, z, TILE_TYPES.FLOOR_BASE);
+      updateMapTile(x, z, TILE_TYPES.BASE_FLOOR);
       return;
     }
 
@@ -458,7 +517,7 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
         });
         addNotification(`Picked up ${item.name}`);
         addItem(item, 1);
-        updateMapTile(x, z, TILE_TYPES.FLOOR_BASE);
+        updateMapTile(x, z, TILE_TYPES.BASE_FLOOR);
       }
       return;
     }
@@ -484,6 +543,15 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
       }
     }
   };
+
+  const trigger1Pos = useMemo(
+    () => getMarkerCenter(LEVEL_2_ASCII, '!') ?? new THREE.Vector3(281.75, 0, 42),
+    []
+  );
+  const trigger2Pos = useMemo(
+    () => getMarkerCenter(LEVEL_2_ASCII, '*') ?? new THREE.Vector3(331.25, 0, 12),
+    []
+  );
 
   return (
     <div
@@ -585,10 +653,19 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
       {(gameState === 'roam' || gameState === 'resting') && (
         <Minimap
           map={mapData}
+          version={mapVersion}
           playerPos={playerPosRef}
           playerRotation={playerRotationRef}
           enemyTracker={enemyTracker}
         />
+      )}
+
+      {showPanicPrompt && (
+        <div className="absolute inset-x-0 top-1/3 text-center pointer-events-none z-50">
+          <p className="font-mono text-red-600 text-xl tracking-widest bg-black/80 inline-block px-4 py-2 border border-red-900 animate-pulse">
+            Our hero drops his sword in panic
+          </p>
+        </div>
       )}
 
       <Canvas
@@ -601,16 +678,17 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
         {gameState !== 'combat' && <fog attach="fog" args={['#000000', 5, 12]} />}
         <hemisphereLight color="#222244" groundColor="#000000" intensity={0.2} />
 
-        <SanityEffects sanity={stats.sanity} maxSanity={stats.maxSanity} />
+        {!isCinematic && <SanityEffects sanity={stats.sanity} maxSanity={stats.maxSanity} />}
         {gameState !== 'combat' && <AbyssPlane />}
 
         {gameState === 'roam' || gameState === 'combat_transition' || gameState === 'resting' ? (
           <>
-            <AtlasFloor map={mapData} />
             <LevelBuilder
+              key={`builder-${currentLevelId}`}
               map={mapData}
               playerPos={playerPosRef}
-              onCombatStart={(id) => {
+              visibleChunkKeys={visibleChunkKeys}
+              onCombatStart={(id: string) => {
                 chasingEnemyIds.current.delete(id);
                 setIsPlayerChased(chasingEnemyIds.current.size > 0);
                 setCurrentEnemyId(id);
@@ -621,23 +699,64 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
               onEnemyChaseChange={handleEnemyChaseChange}
               enemiesActive={!isBonfireMenuOpen && !isSkillTreeOpen && !isLevelUpOpen}
             />
+            <WallUniformDriver playerPos={playerPosRef} />
             <PlayerController
-              key={currentLevelId}
+              key={`player-${currentLevelId}`}
               map={mapData}
               onInteract={handleInteract}
               onInteractableChange={setCanInteract}
-              onStep={() => {}}
-              isChased={isPlayerChased}
+              isSwordless={isSwordless}
+              onStep={handleStep}
+              isChased={isPlayerChased || isBossChaseActive}
+              extraObstacles={boulderObstacle ? [boulderObstacle] : undefined}
               playerRef={playerPosRef}
               playerRotRef={playerRotationRef}
+              targetFov={chaseFov}
               active={
                 gameState === 'roam' &&
+                !isCinematic &&
                 !isInventoryOpen &&
                 !isBonfireMenuOpen &&
                 !isSkillTreeOpen &&
                 !activeSign
               }
             />
+            {/* Mounted AFTER PlayerController so, at the shared default
+                priority-0, its useFrame runs second each frame — see the
+                note in ChaseEventController.tsx for why priority is no
+                longer used for this. */}
+            {currentLevelId === 'LEVEL_2' && (
+              <ChaseEventController
+                key={`chase-${currentLevelId}`} // forces remount/reset if level changes mid-event
+                playerRef={playerPosRef}
+                map={mapData}
+                playerRotRef={playerRotationRef}
+                trigger1Pos={trigger1Pos}
+                trigger2Pos={trigger2Pos}
+                onPlayerCaught={() => {
+                  AudioManager.play('player-death', { category: 'sfx' });
+                  setGameState('gameover');
+                }}
+                onCinematicStart={() => setIsCinematic(true)}
+                onCinematicEnd={() => setIsCinematic(false)}
+                onSetSwordless={(val) => {
+                  //setIsSwordless(val);
+                  // The chase event fires this once (val=true) the moment
+                  // the hero panics and drops his sword — actually remove
+                  // it from inventory here. NOTE: 'rusty_sword' is a guess
+                  // at the item id in ItemRegistry.ts — swap this for the
+                  // real key if it differs.
+                  if (val) {
+                    removeItem('rusty_sword');
+                    addNotification('You dropped your sword!');
+                  }
+                }}
+                onShowPanicPrompt={setShowPanicPrompt}
+                onSetChaseFov={(active) => setChaseFov(active ? WIDE_CHASE_FOV : 50)}
+                onChaseActiveChange={setIsBossChaseActive}
+                onBoulderLanded={(pos) => setBoulderObstacle({ x: pos.x, z: pos.z, radius: 1.3 })}
+              />
+            )}
           </>
         ) : gameState === 'combat' ? (
           <CombatScene
