@@ -1,4 +1,4 @@
-import React, { useMemo, useCallback } from 'react';
+import React, { useMemo, useCallback, useRef, useState, useEffect } from 'react';
 import { useTexture } from '@react-three/drei';
 import * as THREE from 'three';
 import { SmartWall } from './SmartWall';
@@ -22,10 +22,10 @@ import { buildStructureFootprint, getEffectiveTileId } from '../../utils/Structu
 import { Prop3D } from './Prop3D';
 import { AtlasFloor } from './AtlasFloor';
 import { getChunkCoords, getChunkKey } from '../../utils/ChunkUtils';
+import { tileEventBus } from '../../utils/TileEventBus';
 
-// Concat only the chunk buckets that are currently visible — O(visible chunks)
-// instead of re-scanning every group/tile in the whole map on every chunk
-// crossing (that full-map rescan was the chunk-load lag spike).
+type Orientation = ReturnType<typeof getWallOrientation>;
+
 function selectVisibleFromBuckets<T>(
   buckets: Map<string, T[]>,
   visibleChunkKeys: Set<string>
@@ -104,6 +104,16 @@ const isDoor = (v: number) => {
   );
 };
 
+const isSolidTile = (id: number): boolean => {
+  if (id === 0) return false;
+  const def = getTileDef(id);
+  const isSolidWall =
+    def.type === 'wall' ||
+    (def.type === 'prop' && def.solid === true) ||
+    (def.placement === 'structure' && def.type !== 'floor' && def.solid !== false);
+  return isSolidWall || id === TILE_TYPES.DOOR_CLOSED || id === TILE_TYPES.DOOR_LOCKED_SILVER;
+};
+
 const createSmartGeometry = (
   tileDef: TileDef,
   stretchLeft: number,
@@ -175,6 +185,10 @@ const createSmartGeometry = (
   return geometry;
 };
 
+// StaticLevel receives a MAP SNAPSHOT that is frozen for the component's
+// lifetime (see `structuralMap` below) — wall/floor tile placement never
+// changes during gameplay (doors/items are separate overlay elements), so
+// there is no need for this to ever recompute after mount.
 const StaticLevel = React.memo(
   ({
     map,
@@ -230,7 +244,7 @@ const StaticLevel = React.memo(
         let stretchRight = 0;
         let cullLeft = false;
         let cullRight = false;
-        let type: 'rigid' | 'fadable' = 'fadable';
+        const type: 'rigid' | 'fadable' = 'fadable';
 
         if (isModular) {
           const myOrientation = getOrientation(anchorX, anchorZ);
@@ -254,25 +268,7 @@ const StaticLevel = React.memo(
           } else {
             if (isLeftCol && !isTopRow && !isBottomRow) rotationY = -Math.PI / 2;
             else if (isRightCol && !isTopRow && !isBottomRow) rotationY = Math.PI / 2;
-
-            if (anchorX > 0) {
-              const wID = map[anchorZ][anchorX - 1];
-              const wOr = getOrientation(anchorX - 1, anchorZ);
-              if (isStructure(wID) && wOr === 'vertical') stretchLeft = STRETCH_AMOUNT;
-              if (isOpaqueWall(wID) && wOr === 'horizontal') cullLeft = true;
-            }
-            const rightEdgeX = anchorX + tileDef.size.w;
-            if (rightEdgeX < mapWidth) {
-              const eID = map[anchorZ][rightEdgeX];
-              const eOr = getOrientation(rightEdgeX, anchorZ);
-              if (isStructure(eID) && eOr === 'vertical') stretchRight = STRETCH_AMOUNT;
-              if (isOpaqueWall(eID) && eOr === 'horizontal') cullRight = true;
-            }
           }
-
-          type = isTopRow || isLeftCol || isRightCol ? 'rigid' : 'fadable';
-        } else {
-          type = 'rigid';
         }
 
         const geometry = createSmartGeometry(
@@ -283,10 +279,9 @@ const StaticLevel = React.memo(
           cullRight
         );
 
-        const bucket = buckets.get(chunkKey) ?? [];
-        bucket.push(
+        const el = (
           <SmartWall
-            key={`wall-${index}`}
+            key={`w-${index}`}
             geometry={geometry}
             texture={texture}
             wallType={type}
@@ -294,10 +289,13 @@ const StaticLevel = React.memo(
             rotation={[0, rotationY, 0]}
           />
         );
+
+        const bucket = buckets.get(chunkKey) ?? [];
+        bucket.push(el);
         buckets.set(chunkKey, bucket);
       });
       return buckets;
-    }, [map, texture, mapWidth, mapHeight, getOrientation]);
+    }, [map, mapWidth, mapHeight, texture, getOrientation]);
 
     const wallMeshes = useMemo(
       () => selectVisibleFromBuckets(wallMeshesByChunk, visibleChunkKeys),
@@ -352,32 +350,227 @@ const StaticLevel = React.memo(
         {cornerMeshes}
       </group>
     );
-  },
-  (prevProps, nextProps) => {
-    if (
-      prevProps.texture !== nextProps.texture ||
-      prevProps.playerPos !== nextProps.playerPos ||
-      prevProps.visibleChunkKeys !== nextProps.visibleChunkKeys
-    ) {
-      return false;
-    }
-    const h = prevProps.map.length;
-    const w = prevProps.map[0].length;
-
-    for (let z = 0; z < h; z++) {
-      for (let x = 0; x < w; x++) {
-        const prevId = prevProps.map[z][x];
-        const nextId = nextProps.map[z][x];
-        if (prevId !== nextId) {
-          if (!isStructure(prevId) && !isStructure(nextId)) continue;
-          if (isDoor(prevId) && isDoor(nextId)) continue;
-          return false;
-        }
-      }
-    }
-    return true;
   }
+  // No custom comparator needed: `map` is now a frozen snapshot reference
+  // that never changes post-mount, so React.memo's default prop-reference
+  // check already skips re-render on every gameplay tile edit for free.
 );
+
+interface CellBuilderCtx {
+  playerPos: React.RefObject<THREE.Vector3>;
+  onCombatStart: (id: string) => void;
+  enemyTracker: React.RefObject<Map<string, { x: number; z: number }>>;
+  onEnemyChaseChange: (enemyId: string, isChasing: boolean) => void;
+  enemiesActive: boolean;
+  deadEnemyIds: Set<string>;
+  collisionGrid: boolean[][];
+  getOrientation: (x: number, z: number) => Orientation;
+}
+
+interface CellEntry {
+  key: string;
+  element: React.ReactElement;
+  enemyKey?: string;
+}
+
+// Builds every renderable element for a single grid cell. Pure function —
+// safe to call both at initial build time and inside a later patch.
+function buildCellElements(tile: number, x: number, z: number, ctx: CellBuilderCtx): CellEntry[] {
+  const out: CellEntry[] = [];
+
+  if (isDoor(tile)) {
+    const isLocked = tile === TILE_TYPES.DOOR_LOCKED_SILVER;
+    let rotationY = 0;
+    if (ctx.getOrientation(x, z) === 'vertical') rotationY = Math.PI / 2;
+    out.push({
+      key: `door-${x}-${z}`,
+      element: (
+        <Door
+          key={`door-${x}-${z}`}
+          x={x}
+          z={z}
+          isOpen={tile === TILE_TYPES.DOOR_OPEN}
+          isLocked={isLocked}
+          rotation={rotationY}
+          playerPos={ctx.playerPos}
+        />
+      ),
+    });
+  }
+
+  if (tile === TILE_TYPES.GOLD) {
+    out.push({
+      key: `gold-${x}-${z}`,
+      element: (
+        <group key={`gold-${x}-${z}`} position={[0, 0.01, 0]}>
+          <Gold x={x} z={z} />
+        </group>
+      ),
+    });
+  }
+
+  if (tile === TILE_TYPES.TORCH_WALL) {
+    out.push({ key: `torch-${x}-${z}`, element: <Torch key={`torch-${x}-${z}`} x={x} z={z} /> });
+  }
+  if (tile === TILE_TYPES.CANDLE) {
+    out.push({ key: `candle-${x}-${z}`, element: <Candle key={`candle-${x}-${z}`} x={x} z={z} /> });
+  }
+  if (tile === TILE_TYPES.BONFIRE) {
+    out.push({
+      key: `bonfire-${x}-${z}`,
+      element: <Bonfire key={`bonfire-${x}-${z}`} x={x} z={z} />,
+    });
+  }
+  if (tile === TILE_TYPES.SIGN) {
+    out.push({
+      key: `sign-${x}-${z}`,
+      element: <Sign key={`sign-${x}-${z}`} x={x} z={z} playerPos={ctx.playerPos} />,
+    });
+  }
+
+  const enemyConfig = ENEMY_TILE_CONFIG[tile];
+  if (enemyConfig) {
+    const enemyKey = `${enemyConfig.prefix}-${x}-${z}`;
+    const baseEnemyDef = ENEMIES[enemyConfig.type.toUpperCase()];
+
+    if (!ctx.deadEnemyIds.has(enemyKey)) {
+      out.push({
+        key: `mon-${x}-${z}`,
+        enemyKey,
+        element: (
+          <group key={`mon-${x}-${z}`} position={[0, 0.01, 0]}>
+            <Monster
+              id={enemyKey}
+              type={enemyConfig.type}
+              startX={x}
+              startZ={z}
+              behavior={baseEnemyDef?.defaultBehavior}
+              playerPos={ctx.playerPos.current}
+              collisionGrid={ctx.collisionGrid}
+              onCombatStart={() => ctx.onCombatStart(enemyKey)}
+              enemyTracker={ctx.enemyTracker}
+              onChaseStateChange={ctx.onEnemyChaseChange}
+              active={ctx.enemiesActive}
+            />
+          </group>
+        ),
+      });
+    }
+  }
+
+  const tileDef = getTileDef(tile);
+
+  if (tileDef.type === 'prop' && tileDef.modelPath) {
+    out.push({
+      key: `prop-${tileDef.name}-${x}-${z}`,
+      element: (
+        <Prop3D
+          key={`prop-${tileDef.name}-${x}-${z}`}
+          modelPath={tileDef.modelPath}
+          gridX={x}
+          gridZ={z}
+          scale={tileDef.scale ?? 0.5}
+        />
+      ),
+    });
+  }
+
+  if (tileDef.type === 'item' && tileDef.itemId) {
+    const itemData = ITEM_REGISTRY[tileDef.itemId];
+    if (itemData) {
+      out.push({
+        key: `item-${x}-${z}`,
+        element: <LootDrop key={`item-${x}-${z}`} x={x} z={z} item={itemData} />,
+      });
+    }
+  }
+
+  return out;
+}
+
+function buildAllBuckets(map: number[][], ctx: CellBuilderCtx) {
+  const buckets = new Map<string, CellEntry[]>();
+  const enemyLocations = new Map<string, { chunkKey: string; key: string }>();
+
+  map.forEach((row, z) => {
+    row.forEach((tile, x) => {
+      const cells = buildCellElements(tile, x, z, ctx);
+      if (cells.length === 0) return;
+
+      const { cx, cz } = getChunkCoords(x, z);
+      const chunkKey = getChunkKey(cx, cz);
+      const bucket = buckets.get(chunkKey) ?? [];
+      for (const entry of cells) {
+        bucket.push(entry);
+        if (entry.enemyKey) enemyLocations.set(entry.enemyKey, { chunkKey, key: entry.key });
+      }
+      buckets.set(chunkKey, bucket);
+    });
+  });
+
+  return { buckets, enemyLocations };
+}
+
+function buildCollisionGrid(map: number[][]): boolean[][] {
+  const footprint = buildStructureFootprint(map);
+  return map.map((row, z) =>
+    row.map((_, x) => isSolidTile(getEffectiveTileId(map, footprint, x, z)))
+  );
+}
+
+// Immutable single-cell patch: clones only the affected chunk's array, and
+// the outer Map — never touches other chunks' arrays. O(chunk size), not
+// O(map size).
+function patchBucketsForCell(
+  buckets: Map<string, CellEntry[]>,
+  x: number,
+  z: number,
+  newEntries: CellEntry[]
+): Map<string, CellEntry[]> {
+  const { cx, cz } = getChunkCoords(x, z);
+  const chunkKey = getChunkKey(cx, cz);
+  const suffix = `-${x}-${z}`;
+
+  const oldList = buckets.get(chunkKey) ?? [];
+  const filtered = oldList.filter((e) => !e.key.endsWith(suffix));
+  const nextList = newEntries.length > 0 ? [...filtered, ...newEntries] : filtered;
+
+  const next = new Map(buckets);
+  if (nextList.length > 0) next.set(chunkKey, nextList);
+  else next.delete(chunkKey);
+  return next;
+}
+
+function removeEntryFromBuckets(
+  buckets: Map<string, CellEntry[]>,
+  chunkKey: string,
+  key: string
+): Map<string, CellEntry[]> {
+  const oldList = buckets.get(chunkKey);
+  if (!oldList) return buckets;
+  const filtered = oldList.filter((e) => e.key !== key);
+  if (filtered.length === oldList.length) return buckets;
+  const next = new Map(buckets);
+  if (filtered.length > 0) next.set(chunkKey, filtered);
+  else next.delete(chunkKey);
+  return next;
+}
+
+function replaceEntryInBuckets(
+  buckets: Map<string, CellEntry[]>,
+  chunkKey: string,
+  entry: CellEntry
+): Map<string, CellEntry[]> {
+  const oldList = buckets.get(chunkKey);
+  if (!oldList) return buckets;
+  const idx = oldList.findIndex((e) => e.key === entry.key);
+  if (idx === -1) return buckets;
+  const nextList = [...oldList];
+  nextList[idx] = entry;
+  const next = new Map(buckets);
+  next.set(chunkKey, nextList);
+  return next;
+}
 
 interface LevelBuilderProps {
   map: number[][];
@@ -403,156 +596,173 @@ export const LevelBuilder: React.FC<LevelBuilderProps> = ({
   const rawAtlas = useTexture(ATLAS_URL);
   const texture = useMemo(() => getConfiguredAtlasTexture(rawAtlas, ATLAS_URL), [rawAtlas]);
 
-  const collisionGrid = useMemo(() => {
-    const footprint = buildStructureFootprint(map);
-    return map.map((row, z) =>
-      row.map((_, x) => {
-        const id = getEffectiveTileId(map, footprint, x, z);
-        if (id === 0) return false;
-        const def = getTileDef(id);
-
-        const isSolidWall =
-          def.type === 'wall' ||
-          (def.type === 'prop' && def.solid === true) ||
-          (def.placement === 'structure' && def.type !== 'floor' && def.solid !== false);
-
-        return isSolidWall || id === TILE_TYPES.DOOR_CLOSED || id === TILE_TYPES.DOOR_LOCKED_SILVER;
-      })
-    );
-  }, [map]);
+  // Frozen snapshot of the map as it was at mount. LevelBuilder remounts on
+  // level change (key={`builder-${currentLevelId}`} in Game.tsx), so this
+  // is exactly the map for the level's whole lifetime. Wall/floor layout
+  // never changes at runtime (doors/items are separate overlay elements),
+  // so nothing derived from this needs to react to gameplay tile edits —
+  // this is what eliminates the full-map rescans on pickup.
+  const [structuralMap] = useState(() => map);
 
   const getOrientation = useCallback(
-    (tx: number, tz: number) => getWallOrientation(map, tx, tz),
-    [map]
+    (tx: number, tz: number) => getWallOrientation(structuralMap, tx, tz),
+    [structuralMap]
   );
 
-  const itemsByChunk = useMemo(() => {
-    const buckets = new Map<string, React.ReactElement[]>();
-    const pushTo = (chunkKey: string, el: React.ReactElement) => {
-      const bucket = buckets.get(chunkKey) ?? [];
-      bucket.push(el);
-      buckets.set(chunkKey, bucket);
-    };
+  // Live, mutable-by-patch state. Lazy initializers run exactly once, at
+  // mount, so this is a one-time O(map size) build — not a per-render cost.
+  const [collisionGrid, setCollisionGrid] = useState<boolean[][]>(() =>
+    buildCollisionGrid(structuralMap)
+  );
 
-    map.forEach((row, z) => {
-      row.forEach((tile, x) => {
-        const { cx, cz } = getChunkCoords(x, z);
-        const chunkKey = getChunkKey(cx, cz);
-        const list: React.ReactElement[] = [];
+  // Bundle buckets + enemy locations into one state object so both update
+  // together via functional setState — no ref read/write during render.
+  const [levelData, setLevelData] = useState<{
+    buckets: Map<string, CellEntry[]>;
+    enemyLocations: Map<string, { chunkKey: string; key: string }>;
+  }>(() =>
+    buildAllBuckets(structuralMap, {
+      playerPos,
+      onCombatStart,
+      enemyTracker,
+      onEnemyChaseChange,
+      enemiesActive,
+      deadEnemyIds,
+      collisionGrid,
+      getOrientation,
+    })
+  );
 
-        if (isDoor(tile)) {
-          const isLocked = tile === TILE_TYPES.DOOR_LOCKED_SILVER;
-          let rotationY = 0;
-          if (getOrientation(x, z) === 'vertical') rotationY = Math.PI / 2;
-          list.push(
-            <Door
-              key={`door-${x}-${z}`}
-              x={x}
-              z={z}
-              isOpen={tile === TILE_TYPES.DOOR_OPEN}
-              isLocked={isLocked}
-              rotation={rotationY}
-              playerPos={playerPos}
-            />
-          );
-        }
-
-        if (tile === TILE_TYPES.GOLD) {
-          list.push(
-            <group key={`gold-${x}-${z}`} position={[0, 0.01, 0]}>
-              <Gold x={x} z={z} />
-            </group>
-          );
-        }
-
-        if (tile === TILE_TYPES.TORCH_WALL) {
-          list.push(<Torch key={`torch-${x}-${z}`} x={x} z={z} />);
-        }
-        if (tile === TILE_TYPES.CANDLE) {
-          list.push(<Candle key={`candle-${x}-${z}`} x={x} z={z} />);
-        }
-        if (tile === TILE_TYPES.BONFIRE) {
-          list.push(<Bonfire key={`bonfire-${x}-${z}`} x={x} z={z} />);
-        }
-        if (tile === TILE_TYPES.SIGN) {
-          list.push(<Sign key={`sign-${x}-${z}`} x={x} z={z} playerPos={playerPos} />);
-        }
-
-        const enemyConfig = ENEMY_TILE_CONFIG[tile];
-        if (enemyConfig) {
-          const enemyKey = `${enemyConfig.prefix}-${x}-${z}`;
-          const baseEnemyDef = ENEMIES[enemyConfig.type.toUpperCase()];
-
-          if (!deadEnemyIds.has(enemyKey)) {
-            list.push(
-              <group key={`mon-${x}-${z}`} position={[0, 0.01, 0]}>
-                <Monster
-                  id={enemyKey}
-                  type={enemyConfig.type}
-                  startX={x}
-                  startZ={z}
-                  behavior={baseEnemyDef?.defaultBehavior}
-                  playerPos={playerPos.current}
-                  collisionGrid={collisionGrid}
-                  onCombatStart={() => onCombatStart(enemyKey)}
-                  enemyTracker={enemyTracker}
-                  onChaseStateChange={onEnemyChaseChange}
-                  active={enemiesActive}
-                />
-              </group>
-            );
-          }
-        }
-
-        const tileDef = getTileDef(tile);
-
-        if (tileDef.type === 'prop' && tileDef.modelPath) {
-          list.push(
-            <Prop3D
-              key={`prop-${tileDef.name}-${x}-${z}`}
-              modelPath={tileDef.modelPath}
-              gridX={x}
-              gridZ={z}
-              scale={tileDef.scale ?? 0.5}
-            />
-          );
-        }
-
-        if (tileDef.type === 'item' && tileDef.itemId) {
-          const itemData = ITEM_REGISTRY[tileDef.itemId];
-          if (itemData) {
-            list.push(<LootDrop key={`item-${x}-${z}`} x={x} z={z} item={itemData} />);
-          }
-        }
-
-        if (list.length > 0) {
-          for (const el of list) pushTo(chunkKey, el);
-        }
-      });
-    });
-    return buckets;
-  }, [
-    map,
+  // --- Live "current props" ref, updated after every render, read only
+  // from inside effects/event callbacks (never during render). This keeps
+  // patchCell/tileEventBus callbacks correct without needing to
+  // resubscribe whenever a prop changes. ---
+  const liveRef = useRef({
     playerPos,
     onCombatStart,
     enemyTracker,
-    deadEnemyIds,
-    getOrientation,
-    collisionGrid,
     onEnemyChaseChange,
     enemiesActive,
-  ]);
+    deadEnemyIds,
+    getOrientation,
+  });
+  useEffect(() => {
+    liveRef.current = {
+      playerPos,
+      onCombatStart,
+      enemyTracker,
+      onEnemyChaseChange,
+      enemiesActive,
+      deadEnemyIds,
+      getOrientation,
+    };
+  });
 
-  const items = useMemo(
-    () => selectVisibleFromBuckets(itemsByChunk, visibleChunkKeys),
-    [itemsByChunk, visibleChunkKeys]
-  );
+  // Patch exactly one cell on a tile-change event: O(1) collision update +
+  // O(chunk size) item-bucket update. No full-map work.
+  useEffect(() => {
+    return tileEventBus.subscribe((x, z, _oldId, newId) => {
+      setCollisionGrid((prev) => {
+        const nextSolid = isSolidTile(newId);
+        if (prev[z][x] === nextSolid) return prev;
+        const next = [...prev];
+        next[z] = [...prev[z]];
+        next[z][x] = nextSolid;
+        return next;
+      });
+
+      setLevelData((prev) => {
+        const l = liveRef.current;
+        const cells = buildCellElements(newId, x, z, {
+          playerPos: l.playerPos,
+          onCombatStart: l.onCombatStart,
+          enemyTracker: l.enemyTracker,
+          onEnemyChaseChange: l.onEnemyChaseChange,
+          enemiesActive: l.enemiesActive,
+          deadEnemyIds: l.deadEnemyIds,
+          collisionGrid, // stale-by-one-tick is fine; monsters don't spawn from pickups
+          getOrientation: l.getOrientation,
+        });
+
+        const nextBuckets = patchBucketsForCell(prev.buckets, x, z, cells);
+        let nextLocations = prev.enemyLocations;
+        for (const entry of cells) {
+          if (entry.enemyKey) {
+            const { cx, cz } = getChunkCoords(x, z);
+            if (nextLocations === prev.enemyLocations) nextLocations = new Map(prev.enemyLocations);
+            nextLocations.set(entry.enemyKey, { chunkKey: getChunkKey(cx, cz), key: entry.key });
+          }
+        }
+        return { buckets: nextBuckets, enemyLocations: nextLocations };
+      });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Enemy death: remove just that one cached element.
+  const prevDeadRef = useRef<Set<string>>(deadEnemyIds);
+  useEffect(() => {
+    if (deadEnemyIds !== prevDeadRef.current) {
+      const newlyDead = Array.from(deadEnemyIds).filter((id) => !prevDeadRef.current.has(id));
+      if (newlyDead.length > 0) {
+        setLevelData((prev) => {
+          let buckets = prev.buckets;
+          const enemyLocations = new Map(prev.enemyLocations);
+          for (const id of newlyDead) {
+            const loc = enemyLocations.get(id);
+            if (loc) {
+              buckets = removeEntryFromBuckets(buckets, loc.chunkKey, loc.key);
+              enemyLocations.delete(id);
+            }
+          }
+          return { buckets, enemyLocations };
+        });
+      }
+      prevDeadRef.current = deadEnemyIds;
+    }
+  }, [deadEnemyIds]);
+
+  // enemiesActive toggle: patch only live monster entries, not the whole map.
+  const prevActiveRef = useRef(enemiesActive);
+  useEffect(() => {
+    if (enemiesActive !== prevActiveRef.current) {
+      prevActiveRef.current = enemiesActive;
+      const l = liveRef.current;
+      setLevelData((prev) => {
+        let buckets = prev.buckets;
+        for (const [enemyKey, loc] of prev.enemyLocations) {
+          const parts = enemyKey.split('-');
+          const z = Number(parts[parts.length - 1]);
+          const x = Number(parts[parts.length - 2]);
+          const tile = structuralMap[z][x];
+          const cells = buildCellElements(tile, x, z, {
+            playerPos: l.playerPos,
+            onCombatStart: l.onCombatStart,
+            enemyTracker: l.enemyTracker,
+            onEnemyChaseChange: l.onEnemyChaseChange,
+            enemiesActive,
+            deadEnemyIds: l.deadEnemyIds,
+            collisionGrid,
+            getOrientation: l.getOrientation,
+          });
+          const match = cells.find((c) => c.key === loc.key);
+          if (match) buckets = replaceEntryInBuckets(buckets, loc.chunkKey, match);
+        }
+        return { ...prev, buckets };
+      });
+    }
+  }, [enemiesActive, structuralMap, collisionGrid]);
+
+  const items = useMemo(() => {
+    const flat = selectVisibleFromBuckets(levelData.buckets, visibleChunkKeys);
+    return flat.map((e) => e.element);
+  }, [levelData.buckets, visibleChunkKeys]);
 
   return (
     <group>
-      <AtlasFloor map={map} visibleChunkKeys={visibleChunkKeys} />
+      <AtlasFloor map={structuralMap} visibleChunkKeys={visibleChunkKeys} />
       <StaticLevel
-        map={map}
+        map={structuralMap}
         texture={texture}
         playerPos={playerPos}
         visibleChunkKeys={visibleChunkKeys}

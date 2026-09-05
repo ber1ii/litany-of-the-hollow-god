@@ -98,7 +98,6 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
   // removal from inventory below is independent of this flag.
   const [isSwordless /*setIsSwordless*/] = useState(false);
   const [showPanicPrompt, setShowPanicPrompt] = useState(false);
-  const [mapVersion, setMapVersion] = useState(0);
 
   const [chaseFov, setChaseFov] = useState(50);
   const WIDE_CHASE_FOV = 68;
@@ -128,7 +127,7 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
   // Structure footprint for the current map — lets handleInteract resolve
   // any cell inside a multi-tile structure (e.g. dark_archway's 5x6
   // footprint) to that structure's tile id, not just its anchor cell.
-  const footprint = useMemo(() => buildStructureFootprint(mapData), [currentLevelId]);
+  const footprint = useMemo(() => buildStructureFootprint(mapData), [mapData]);
 
   // Initialize Store on Mount
   useEffect(() => {
@@ -284,18 +283,20 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
     setTimeout(() => setNotifications((prev) => prev.slice(1)), 3000);
   };
 
+  // Remove mapVersion entirely — no longer needed.
+
   const updateMapTile = (x: number, z: number, newTileId: number) => {
     const oldTileId = mapData[z][x];
     if (oldTileId === newTileId) return;
 
-    mapData[z][x] = newTileId; // mutate in place — no clone, no full rescan
-    tileEventBus.emit(x, z, oldTileId, newTileId);
-    setMapVersion((v) => v + 1); // cheap re-render trigger for UI (minimap etc.)
+    setMapData((prev) => {
+      const newMap = [...prev]; // shallow clone of row array — O(height), cheap
+      newMap[z] = [...prev[z]]; // clone only the touched row — O(width), cheap
+      newMap[z][x] = newTileId;
+      return newMap;
+    });
 
-    if (!levelChanges.current.has(currentLevelId)) {
-      levelChanges.current.set(currentLevelId, new Map());
-    }
-    levelChanges.current.get(currentLevelId)?.set(`${x},${z}`, newTileId);
+    tileEventBus.emit(x, z, oldTileId, newTileId); // side effect stays outside the updater
   };
 
   useEffect(() => {
@@ -653,7 +654,6 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
       {(gameState === 'roam' || gameState === 'resting') && (
         <Minimap
           map={mapData}
-          version={mapVersion}
           playerPos={playerPosRef}
           playerRotation={playerRotationRef}
           enemyTracker={enemyTracker}
