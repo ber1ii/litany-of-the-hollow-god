@@ -35,6 +35,13 @@ export const createWallGeometry = (tileDef: TileDef, cullFaces: CullOptions = {}
   const normals: number[] = [];
   const uvs: number[] = [];
   const indices: number[] = [];
+  // Per-vertex face role, consumed by SmartWallShader:
+  //   0 = main face (south/north) — allowed to fade near the player
+  //   1 = side/top face — must stay fully opaque. The box has no bottom
+  //       cap, so if a side/top face were allowed to fade too, fading
+  //       would expose the hollow interior instead of just thinning the
+  //       wall you're standing next to.
+  const faceRoles: number[] = [];
 
   let indexOffset = 0;
 
@@ -59,6 +66,9 @@ export const createWallGeometry = (tileDef: TileDef, cullFaces: CullOptions = {}
   ) => {
     vertices.push(...v1, ...v2, ...v3, ...v4);
     normals.push(...normal, ...normal, ...normal, ...normal);
+
+    const role = faceType === 'main' ? 0 : 1;
+    faceRoles.push(role, role, role, role);
 
     if (faceType === 'main') {
       uvs.push(
@@ -154,6 +164,7 @@ export const createWallGeometry = (tileDef: TileDef, cullFaces: CullOptions = {}
   geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
   geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
   geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setAttribute('faceRole', new THREE.Float32BufferAttribute(faceRoles, 1));
   geometry.setIndex(indices);
 
   geometry.addGroup(0, sideIndicesCount, 0);

@@ -26,7 +26,10 @@ export const sanityFragmentShader = /* glsl */ `
     }
 
     // --- 2. CHROMATIC ABERRATION (RGB Shift) ---
-    float shift = 0.001 + (madness * 0.014);
+    // No shift at all until madness actually rises — the old constant
+    // 0.001 baseline caused a visible RGB fringe on every hard edge
+    // (walls, sprites) even at full sanity.
+    float shift = madness > 0.05 ? madness * 0.015 : 0.0;
 
     // Glitch twitch kicks in earlier/more often — this is the primary
     // "impairment" signal now, not darkness.

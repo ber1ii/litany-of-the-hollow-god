@@ -91,11 +91,6 @@ const isStructure = (v: number) => {
   );
 };
 
-const isOpaqueWall = (v: number) => {
-  const def = getTileDef(v);
-  return def && def.type === 'wall';
-};
-
 const isDoor = (v: number) => {
   return (
     v === TILE_TYPES.DOOR_CLOSED ||
@@ -137,6 +132,18 @@ const createSmartGeometry = (
 
   const xOffset = (stretchRight - stretchLeft) / 2;
   geometry.translate(xOffset, height / 2, 0);
+
+  // Per-vertex face role consumed by SmartWallShader:
+  //   0 = front/back face — the only faces allowed to fade near the player
+  //   1 = left/right/top/bottom — must stay fully opaque, or fading them
+  //       exposes the hollow interior of the box (no bottom cap) as the
+  //       "artifacting" glitch when standing next to a wall.
+  // BoxGeometry vertex order: right(0-3), left(4-7), top(8-11),
+  // bottom(12-15), front(16-19), back(20-23).
+  const faceRoleArray = new Float32Array(24);
+  for (let i = 0; i < 16; i++) faceRoleArray[i] = 1;
+  for (let i = 16; i < 24; i++) faceRoleArray[i] = 0;
+  geometry.setAttribute('faceRole', new THREE.Float32BufferAttribute(faceRoleArray, 1));
 
   const indexAttribute = geometry.getIndex();
   if (indexAttribute) {
@@ -242,14 +249,20 @@ const StaticLevel = React.memo(
         let rotationY = 0;
         let stretchLeft = 0;
         let stretchRight = 0;
-        let cullLeft = false;
-        let cullRight = false;
+        const cullLeft = false;
+        const cullRight = false;
         const type: 'rigid' | 'fadable' = 'fadable';
 
         if (isModular) {
           const myOrientation = getOrientation(anchorX, anchorZ);
           const isVertical = myOrientation === 'vertical';
-          const STRETCH_AMOUNT = 0.5;
+          // Was a hardcoded 0.5 — if that didn't exactly match this
+          // project's WALL_THICKNESS, the stretched box fell short of
+          // fully overlapping the perpendicular wall at the corner,
+          // leaving a sliver gap that exposed the always-opaque side
+          // face as a hard line. Using WALL_THICKNESS directly guarantees
+          // full overlap regardless of tile dimensions.
+          const STRETCH_AMOUNT = WALL_THICKNESS;
 
           if (isVertical) {
             rotationY = Math.PI / 2;
@@ -257,13 +270,18 @@ const StaticLevel = React.memo(
               const nID = map[anchorZ - 1][anchorX];
               const nOr = getOrientation(anchorX, anchorZ - 1);
               if (isStructure(nID) && nOr === 'horizontal') stretchRight = STRETCH_AMOUNT;
-              if (isOpaqueWall(nID) && nOr === 'vertical') cullRight = true;
+              // Deliberately NOT culling the shared side face between two
+              // same-orientation neighbors here. Those faces point directly
+              // away from any outside camera (default FrontSide backface
+              // culling already hides them), so culling them was a pure
+              // overdraw "optimization" — but under transparent blending it
+              // made the box non-watertight, letting the renderer draw
+              // through the gap at oblique angles (the torn-seam glitch).
             }
             if (anchorZ < mapHeight - 1) {
               const sID = map[anchorZ + 1][anchorX];
               const sOr = getOrientation(anchorX, anchorZ + 1);
               if (isStructure(sID) && sOr === 'horizontal') stretchLeft = STRETCH_AMOUNT;
-              if (isOpaqueWall(sID) && sOr === 'vertical') cullLeft = true;
             }
           } else {
             if (isLeftCol && !isTopRow && !isBottomRow) rotationY = -Math.PI / 2;
