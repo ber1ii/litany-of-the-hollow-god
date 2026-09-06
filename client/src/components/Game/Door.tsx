@@ -66,7 +66,7 @@ export const Door: React.FC<DoorProps> = ({ x, z, isOpen, isLocked, rotation = 0
     mat.onBeforeCompile = (shader) => {
       SmartWallShader.onBeforeCompile(shader);
       mat.userData.shader = shader;
-      shader.uniforms.uWallType.value = 1.0;
+      shader.uniforms.uWallType.value = 0.0; // doors never fade
       shader.uniforms.uIsVertical.value = isVertical ? 1.0 : 0.0;
     };
     return mat;
@@ -87,14 +87,14 @@ export const Door: React.FC<DoorProps> = ({ x, z, isOpen, isLocked, rotation = 0
       shader.fragmentShader = shader.fragmentShader.replace(
         '#include <map_fragment>',
         `
-        #include <map_fragment>
-        #ifdef USE_MAP
-          if (diffuseColor.a < 0.5) discard; // Hard cut for texture gaps early so it doesn't break the smooth fade later
-        #endif
-        `
+      #include <map_fragment>
+      #ifdef USE_MAP
+        if (diffuseColor.a < 0.5) discard;
+      #endif
+      `
       );
 
-      shader.uniforms.uWallType.value = 1.0;
+      shader.uniforms.uWallType.value = 0.0; // doors never fade
       shader.uniforms.uIsVertical.value = isVertical ? 1.0 : 0.0;
     };
     return mat;
@@ -112,19 +112,18 @@ export const Door: React.FC<DoorProps> = ({ x, z, isOpen, isLocked, rotation = 0
       SmartWallShader.onBeforeCompile(shader);
       mat.userData.shader = shader;
 
-      // Dark desaturated washed-out gray matching the GLSL void tone of the smart walls
       shader.fragmentShader = shader.fragmentShader.replace(
         '#include <map_fragment>',
         `
-        #include <map_fragment>
-        #ifdef USE_MAP
-          diffuseColor.rgb = mix(vec3(0.025, 0.027, 0.030), diffuseColor.rgb, diffuseColor.a);
-          diffuseColor.a = 1.0; 
-        #endif
-        `
+      #include <map_fragment>
+      #ifdef USE_MAP
+        diffuseColor.rgb = mix(vec3(0.025, 0.027, 0.030), diffuseColor.rgb, diffuseColor.a);
+        diffuseColor.a = 1.0; 
+      #endif
+      `
       );
 
-      shader.uniforms.uWallType.value = 1.0;
+      shader.uniforms.uWallType.value = 1.0; // filler fades like a normal wall
       shader.uniforms.uIsVertical.value = isVertical ? 1.0 : 0.0;
     };
     return mat;
