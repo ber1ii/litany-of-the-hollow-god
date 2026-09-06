@@ -124,10 +124,8 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
     return activeMap;
   });
 
-  // Structure footprint for the current map — lets handleInteract resolve
-  // any cell inside a multi-tile structure (e.g. dark_archway's 5x6
-  // footprint) to that structure's tile id, not just its anchor cell.
-  const footprint = useMemo(() => buildStructureFootprint(mapData), [mapData]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const footprint = useMemo(() => buildStructureFootprint(mapData), [currentLevelId]);
 
   // Initialize Store on Mount
   useEffect(() => {
