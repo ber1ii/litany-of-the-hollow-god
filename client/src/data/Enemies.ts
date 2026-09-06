@@ -130,7 +130,7 @@ export const ENEMIES: Record<string, EnemyDef & { defaultBehavior?: MonsterBehav
     hasMask: true,
     tier: 'common',
     aiBehavior: 'aggressive',
-    baseStats: { attack: 16, defense: 6, speed: 6, maxHp: 130, xp: 5, gold: 125 },
+    baseStats: { attack: 14, defense: 6, speed: 6, maxHp: 130, xp: 5, gold: 125 },
     scale: 3.2,
     sprites: {
       idle: {

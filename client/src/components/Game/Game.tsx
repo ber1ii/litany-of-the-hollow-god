@@ -467,6 +467,10 @@ export const Game: React.FC<GameProps> = ({ onExit, initialSaveData }) => {
         setBoulderObstacle(null);
         playerRotationRef.current = 0;
 
+        if (nextLevelId === 'LEVEL_2') {
+          removeItem('silver_key');
+        }
+
         addNotification(
           nextLevelId === 'LEVEL_2' ? 'Entering Level 2...' : 'Returning to Level 1...'
         );
